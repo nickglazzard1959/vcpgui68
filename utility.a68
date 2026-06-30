@@ -1,0 +1,385 @@
+COMMENT
+utility.a68 - Widely useful sundry routines, many to do with strings.
+=====================================================================
+
+Nick Glazzard 2026
+------------------
+COMMENT
+
+# Minimum width string from integer. #
+PROC wint = (INT i) STRING:
+   whole(i, 0);
+
+# Return a dollar quoted version of a string. #
+PROC doll = (STRING s) STRING:
+   "$"+s+"$";
+
+# Pause for test purposes. #
+PROC pause = (STRING s) VOID:
+(
+   put(stand error, ("Pause: ",s," > "));
+   get(stand in, (LOC STRING, new line))
+);
+
+# Split a string on a character to a row of strings. #
+PROC split_string = (STRING s, CHAR c) []STRING:
+(
+   INT string_length := ELEMS s;
+   INT n_words := 0;
+   FLEX [1:0] STRING return;
+   FOR i TO string_length
+   DO
+      (s[i] = c | n_words +:=1)
+   OD;
+   ((n_words = 0) AND (string_length > 0) | n_words := 1);
+   IF n_words = 0
+   THEN
+      [1]STRING result;
+      result[1] := "";
+      return := result
+   ELSE
+      (s[string_length] /= c | n_words +:= 1);
+      [n_words]STRING result;
+      INT i_word := 0;
+      INT j := 0;
+      FOR i TO string_length
+      DO
+         IF s[i] = c
+         THEN
+            i_word +:= 1;
+            result[i_word] := s[j+1:i-1];
+            j := i
+         FI
+      OD;
+      (j /= string_length | i_word +:= 1; result[i_word] := s[j+1:]);
+      return := result
+   FI;
+   return
+);
+
+# Trim blanks from a string. Leading, trailing or both. #
+PROC trim_leading = (STRING s) STRING:
+(
+   STRING return := "";
+   INT string_length := ELEMS s;
+   FOR i TO string_length
+   DO
+      (NOT is space(s[i]) | return := s[i:]; GOTO done)
+   OD;
+   done:
+   return
+);
+
+PROC trim_trailing = (STRING s) STRING:
+(
+   STRING return := "";
+   INT string_length := ELEMS s;
+   FOR i FROM string_length BY -1 TO 1
+   DO
+      (NOT is space(s[i]) | return := s[:i]; GOTO done)
+   OD;
+   done:
+   return
+);
+
+PROC trim = (STRING s) STRING:
+(
+   trim_leading( trim_trailing(s) )
+);
+
+# Check v is in the range lo to hi inclusive. #
+PROC check_in_range_int = (INT v, lo, hi) BOOL:
+(
+   (v < lo | FALSE | ((v > hi) | FALSE | TRUE))
+);
+
+# Clamp integer values. #
+PROC clamp_int = (INT v, lo, hi) INT:
+(
+   (v < lo | lo | ((v > hi) | hi | v))
+);
+
+PROC clamp_255 = (INT v) INT:
+(
+   clamp_int(v, 0, 255)
+);
+
+# Clamp real values. #
+PROC clamp_real = (REAL v, lo, hi) REAL:
+(
+   (v < lo | lo | ((v > hi) | hi | v))
+);
+
+# Min and max of pairs of integer values. #
+PROC min2int = (INT a, b) INT:
+(
+   (a < b | a | b )
+);
+
+PROC max2int = (INT a, b) INT:
+(
+   (a > b | a | b )
+);
+
+# Check string only contains decimal digits. #
+PROC all_digits = (STRING s) BOOL:
+(
+   BOOL yes := (ELEMS s > 0);
+   FOR i TO ELEMS s DO (NOT is digit(s[i]) | (yes := FALSE; done)) OD;
+   done:
+   yes
+);
+
+# Check string only contains decimal digits after an optional sign. #
+PROC all_digits_signed = (STRING s) BOOL:
+(
+   BOOL retval := FALSE;
+   ((ELEMS s < 1) | retval := FALSE |
+         ((s[1] = "-") OR (s[1] = "+") | retval := all_digits(s[2:]) |
+               retval := all_digits(s)));
+   retval
+);
+
+# String to integer. NOTE: I don't know how to use event routines with string transput ... #
+PROC string_to_int = (STRING s) INT:
+(
+   INT retval := 0, sign := 1;
+   STRING ls := trim(s);
+   (ls[1] = "-" | ls := ls[2:]; sign := -1);
+   (ls[1] = "+" | ls := ls[2:]);
+   (all_digits(ls) | gets(ls, (retval)));
+   sign * retval
+);
+
+# Another string to integer routine. Start at s[b], return v, increment p. #
+PROC ifromc = (STRING s, REF INT v, INT b, REF INT p) BOOL:
+(
+   INT j, isign, ndused, ib;
+   BOOL retval := TRUE;
+   ib := b;
+
+   # Leading sign? #
+   isign := 1;
+   ( s[ib] = "-" | isign := -1; ib +:= 1 |
+         ( s[ib] = "+" | ib +:= 1));
+
+   # Convert the value. Guard against integer overflow. #
+   v := 0;
+   p := ELEMS s;
+   ndused := 0;
+   FOR i FROM ib TO ELEMS s
+   DO
+      j := ( is digit(s[i]) | (ABS s[i] - ABS "0") | -1);
+      IF j < 0
+      THEN
+         ( i = ib | retval := FALSE );
+         p := i;
+         int_done
+      ELSE
+         ( ndused < 9 | v := 10 * v + j; ndused +:= 1 )
+      FI
+   OD;
+
+   # Finalise. #
+   int_done:
+   v *:= isign;
+   retval
+);
+
+# String to real. If use_all_s, return status will be FALSE unless s has no trailing non-float chars. #
+PROC string_to_real = (STRING s, REF REAL v, BOOL use_all_s) BOOL:
+(
+   # Start with no integer part of mantissa, no decimal part, no exponent. #
+   BOOL giman := FALSE; # Got integer part of mantissa? #
+   BOOL gdman := FALSE; # Got decimal part of mantissa? #
+   BOOL ge := FALSE;    # Got exponent? #
+   BOOL gdp := FALSE;   # Got a decimal point? #
+
+   # Parts of the floating point number as integers. #
+   INT islen := ELEMS s; # Length of the string. #
+   INT iman := 0;        # Mantissa before decimal point. #
+   INT idman := 0;       # Mantissa after decimal point. #
+   INT ndman := 0;       # Number of mantissa digits after dp. #
+   INT iexp := 0;        # Exponent. #
+
+   # Floating point number to return. #
+   v := 0.0;
+   BOOL retval := FALSE; # Assume invalid. #
+   REAL sign := 1.0;     # Sign of mantissa. #
+   REAL esign := 1.0;    # Sign of exponent. #
+   REAL dman := 0.0;     # Value of mantissa after dp. #
+
+   # Current character index. #
+   INT p := 1;
+   INT np := 0; # Updated temp p. #
+
+   # Process a leading sign, if any. #
+   IF s[p] = "+"
+   THEN
+      p +:= 1; (p > islen | fp_format_error)
+   ELIF s[p] = "-"
+   THEN
+      p +:= 1; (p > islen | fp_format_error);
+      sign := -1.0
+   FI;
+
+   # Attempt to convert the integer part of the mantissa. If start with . this is 0. #
+   IF s[p] = "."
+   THEN
+      iman := 0;
+      gdp := TRUE;
+      p +:= 1; (p > islen | fp_format_error)
+   ELSE
+      (NOT is digit(s[p]) | fp_format_error);
+      (NOT ifromc(s, iman, p, np) | fp_format_error);
+      p := np;
+      giman := TRUE
+   FI;
+
+   # No leading . but maybe . now. Illegal if we haven't got int part of mantissa already.  #
+   IF s[p] = "."
+   THEN
+      ( NOT giman | fp_format_error );
+      gdp := TRUE;
+      p +:= 1; (p > islen | fp_format_error)
+   FI;
+
+   # The next character must be: a) start of exponent, or b) start of decimal part of mantissa #
+   # or c) end of number. #
+   IF (s[p] = "E") OR (s[p] = "e")
+   THEN
+      ge := TRUE;
+      idman := 0;
+      p +:= 1; (p > islen | fp_format_error)
+   ELSE
+      IF is digit(s[p]) AND gdp
+      THEN
+         (NOT ifromc(s, idman, p, np) | fp_format_error);
+         ndman := np - p;
+         (np = islen | ndman +:= 1);
+         p := np;
+         gdman := TRUE
+      FI
+   FI;
+
+   # We must now have the integer or decimal parts of the mantissa or both. #
+   ( (NOT giman) AND (NOT gdman) | fp_format_error );
+
+   # If next character is e and we have not already got exponent start, #
+   # then it could be start of exponent. #
+   IF (NOT ge) AND ((s[p] = "E") OR (s[p] = "e"))
+   THEN
+      ge := TRUE;
+      p +:= 1; (p > islen | fp_format_error)
+   FI;
+
+   # If we are at the start of the exponent, get it. #
+   IF ge
+   THEN
+      (s[p] = "+" | (p +:= 1; (p > islen | fp_format_error)) |
+            (s[p] = "-" | esign := -1.0; p +:= 1; (p > islen | fp_format_error)));
+      (NOT is digit(s[p]) | fp_format_error);
+      (NOT ifromc(s, iexp, p, np ) | fp_format_error);
+      p := np
+   FI;
+
+   # Assemble the final real number. #
+   (gdman | dman := REAL(idman) / (10.0 ** min2int(ndman,9)) | dman := 0.0); # Mantissa, after dp. #
+   v := (sign * (REAL(iman) + dman)); # The whole mantissa. #
+   ((ABS iexp) > 307 | fp_format_error); # Must be < 10**308  #
+   (ge | v *:= (10.0 ** (esign * REAL(iexp)))); # With any exponent. #
+
+   # It worked. Status depends on whether all of s should have been used, though. #
+   retval := (p = islen | TRUE | NOT use_all_s);
+
+   # Format errors come here with retval still FALSE. #
+   fp_format_error:
+   retval
+);
+
+# Count how many times a character occurs in a string. #
+PROC count_char_occurrences = (CHAR c, STRING s) INT:
+(
+   INT n_occur := 0;
+   FOR i FROM LWB s TO UPB s
+   DO
+      (s[i] = c | n_occur +:= 1)
+   OD;
+   n_occur
+);
+
+# Does string s begin with string b? #
+PROC begins_with = (STRING s, STRING b) BOOL:
+(
+   BOOL retval := FALSE;
+   ((ELEMS s) >= (ELEMS b) | retval := s[:ELEMS b] = b);
+   retval
+);
+
+# Does string s end with string b? #
+PROC ends_with = (STRING s, STRING b) BOOL:
+(
+   BOOL retval := FALSE;
+   ((ELEMS s) >= (ELEMS b) | retval := s[(ELEMS s)-(ELEMS b)+1:] = b);
+   retval
+);
+
+# Degrees to radians operator. #
+OP DEGRAD = (REAL a) REAL : (a * pi / 180.0);
+
+# Radians to degrees operator. #
+OP RADDEG = (REAL a) REAL: (180.0 * a / pi);
+
+# ------ #
+# TESTS. #
+# ------ #
+
+IF FALSE
+THEN
+
+print((split_string("hello,you nice,things",","), new line));
+print((split_string("",","), new line));
+print((split_string("things,",","), new line));
+print((split_string(",things,",","), new line));
+print((split_string("thing",","), new line));
+print((split_string(",,,",","), new line));
+print((split_string(",a   ,   b,",","), new line));
+print(("[",trim_trailing("  a b  "),"]", new line));
+print(("[",trim_leading("  a b  "),"]", new line));
+print(("[",trim("  a b  "),"]", new line));
+print(("[",trim(" "),"]", new line));
+print(("[",trim(""),"]", new line));
+print((split_string("hello you nice things", " "), new line));
+print((split_string(""," "), new line));
+print((split_string("things "," "), new line));
+print((split_string(" things "," "), new line));
+print((split_string("thing"," "), new line));
+print((split_string("   "," "), new line));
+
+REAL vt := 0;
+put(stand error, ("v 1: ", string_to_real("1", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 10: ", string_to_real("10", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 1.23: ", string_to_real("1.23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -1.23: ", string_to_real("-1.23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v +1.23: ", string_to_real("+1.23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v .23: ", string_to_real(".23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -.23: ", string_to_real("-.23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 0.23: ", string_to_real("0.23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -0.23: ", string_to_real("-0.23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v +0.23: ", string_to_real("+0.23", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 1.23e4: ", string_to_real("1.23e4", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 1.23e-4: ", string_to_real("1.23e-4", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -1.23e-4: ", string_to_real("-1.23e-4", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v .: ", string_to_real(".", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 1.3e: ", string_to_real("1.3e", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 1.gargle: ", string_to_real("1.gargle", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v 1.gargle: ", string_to_real("1.gargle", vt, FALSE), " result = ", vt, newline));
+put(stand error, ("v e2: ", string_to_real("e2", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v +: ", string_to_real("+", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -: ", string_to_real("-", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -E: ", string_to_real("-E", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -1E3: ", string_to_real("-1E3", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -1E30: ", string_to_real("-1E30", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -1E300: ", string_to_real("-1E300", vt, TRUE), " result = ", vt, newline));
+put(stand error, ("v -1E3000: ", string_to_real("-1E3000", vt, TRUE), " result = ", vt, newline))
+FI;

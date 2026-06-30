@@ -1,0 +1,155 @@
+COMMENT
+test-vcpgui.a68 - Test program for vcpgui and related code.
+===========================================================
+
+Nick Glazzard 2026.
+-------------------
+COMMENT
+
+PR read "utility.a68" PR
+PR read "arg_parser.a68" PR
+PR read "vcpgui.a68" PR
+
+# Call back routine for "but2". There are several interesting features here. #
+# Note that dsurf_pipe and ud, which are declared in the mainline code after  #
+# this point ARE VISIBLE here!  This is very useful ... but a bit strange ... #
+PROC but2_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF PUSHBUTTON pb): (set_numericdisplay(dsurf_pipe, "num1", 9999, 2, FALSE); print((ud, newline)))
+      OUT
+         put(stand error, (("Expected a push button. Got something else!", new line)))
+      ESAC
+   FI;
+   FALSE
+);
+
+# call back routine for "but3". #
+PROC but3_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF PUSHBUTTON pb): (set_numericdisplay(dsurf_pipe, "num1", 123, 0, TRUE); ud := (33,"nuts"))
+      OUT
+         put(stand error, (("Expected a push button. Got something else!", new line)))
+      ESAC
+   FI;
+   FALSE
+);
+
+PROC tog_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF TOGGLEBUTTON tb): (
+            CO print(("Toggle button ",tag," State now ",state OF tb)); CO
+            (state OF tb | set_radiobutton(dsurf_pipe, "rad1", 4, TRUE))
+         )
+      OUT
+         put(stand error, (("Expected a toggle button. Got something else!", new line)))
+      ESAC
+   FI;
+   FALSE
+);
+
+PROC rad_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF RADIOBUTTON rb): (
+            CO print(("Radio button ",tag," Which now ",which OF rb)); CO
+            ((which OF rb) = 3 | set_togglebutton(dsurf_pipe, "tog1", FALSE, TRUE));
+            ((which OF rb) = 1 | set_numericdisplay_real(dsurf_pipe, "num1", -3.1415926, 3, FALSE));
+            ((which OF rb) = 5 | set_pushbutton(dsurf_pipe, "but2", TRUE));
+            ((which OF rb) = 2 | set_knob(dsurf_pipe, "knob1", 0.25, FALSE));
+            ((which OF rb) = 4 | set_selector(dsurf_pipe, "sel1", 4, FALSE));
+            ds_show_display(dsurf_pipe)
+         )
+      OUT
+         put(stand error, (("Expected a radio button. Got something else!", new line)))
+      ESAC
+   FI;
+   FALSE
+);
+
+MODE USERDATA = STRUCT(INT a, STRING b);
+
+USERDATA ud := (2, "thing");
+
+PIPE dsurf_pipe = open_dsurf("Hello");
+print(("DSURF PID = ", wint(pid OF dsurf_pipe), new line));
+on logical file end(read OF dsurf_pipe, dsurf_end_handler);
+
+read_component_metrics("dsurf.tal");
+
+ds_load_texture(dsurf_pipe, "dsurf.tal");
+ds_load_font(dsurf_pipe, "LiberationSerif-BoldItalic.ttf", 30, 1);
+
+ds_use_main(dsurf_pipe);
+ds_reset_display(dsurf_pipe);
+
+ds_set_colour_rgba(dsurf_pipe, 50, 50, 50, 255);
+ds_clear(dsurf_pipe);
+
+ds_set_colour_rgba(dsurf_pipe, 200, 200, 50, 255);
+ds_rectangle(dsurf_pipe, 200, 300, 400, 600);
+
+ds_sense_rect(dsurf_pipe, "angle", "dau", 200, 300, 200, 300, 1, FALSE);
+
+ds_rectangle_filled(dsurf_pipe, 250, 350, 300, 400);
+ds_rounded_rectangle(dsurf_pipe, 220, 370, 270, 420, 3);
+ds_rounded_rectangle_filled(dsurf_pipe, 820, 870, 870, 920, 3);
+ds_thick_line(dsurf_pipe, 10, 100, 80, 800, 5);
+ds_circle(dsurf_pipe, 600, 600, 70);
+ds_circle_filled(dsurf_pipe, 600, 600, 50);
+ds_arc(dsurf_pipe, 600, 600, 100, 0, 77);
+ds_ellipse(dsurf_pipe, 100, 500, 25, 35);
+ds_ellipse_filled(dsurf_pipe, 100, 500, 35, 25);
+ds_text(dsurf_pipe, "Yikes", 100, 800, TRUE, 0);
+ds_text(dsurf_pipe, "I don't like it, Carruthers!", 100, 850, FALSE, 0);
+
+ds_set_font(dsurf_pipe, 1);
+
+ds_text_in_font(dsurf_pipe, "Algol 68 rulez!", 800, 100, TRUE, 0);
+ds_sub_texture(dsurf_pipe, "eight", 800, 200, 5, TRUE, 0, 0, 0);
+
+ds_set_font(dsurf_pipe, 0);
+
+ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
+add_pushbutton("but1", "Quit", quit_proc, 800, 150);
+add_pushbutton("but2", "Push me!", but2_proc, 850, 150);
+add_pushbutton("but3", "Mistake!", but3_proc, 900, 150);
+add_togglebutton("tog1", "Toggle", tog_proc, 800, 50, TRUE);
+add_togglebutton("tog2", "Toggy", tog_proc, 850, 50, FALSE);
+
+add_radiobutton("rad1", "a,b,c,d,e", rad_proc, 200, 50, 2);
+
+ds_set_colour_rgba(dsurf_pipe, 180, 180, 180, 255);
+add_numericdisplay("num1", 500, 650, 123, 8, 0, TRUE);
+set_numericdisplay_units(dsurf_pipe, "num1", "kHz");
+
+ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
+add_knob("knob1", "A knob", null_proc, 200, 800, 140, -140, 0.0, 1.0, 0.5);
+
+add_selector("sel1", "s1,s2,s3,s4", null_proc, 200, 200, 2);
+
+add_keypad("kpad1", null_proc, 700, 300, "num1");
+
+instantiate(dsurf_pipe);
+
+run_event_loop(dsurf_pipe);
+
+
+end:
+close_dsurf(dsurf_pipe);
+
+pause("(Waiting for return)")

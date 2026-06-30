@@ -1,0 +1,516 @@
+COMMENT
+config_parser.a68 - Read a config file, parse it and allow its definitions to be accessed as variables
+======================================================================================================
+
+This basically parses a sub-set of TOML (probably), but compatibility beyond basics wasn't a goal.
+A full TOML parser should cope with the things this parser can deal with, though.
+
+Example of usage:
+
+REF CONFIG_PARSE cp := make_config_parser("test.ini");
+IF NOT parse_config_file(cp)
+THEN
+   put(stand error, ("Failed to parse config file. Giving up.", newline));
+   stop
+FI;
+                                              Key    Default
+                                               |        |
+STRING again := config_get_string_value(cp, "again", "nuts"); # Basic string #
+STRING a := config_get_string_value(cp, "a", "nuts");  # Type error here, a is an INT in test.ini #
+INT anint := config_get_int_value(cp, "anint", -1234); # Integer #
+REAL afloat := config_get_real_value(cp, "afloat", 2.718); # Float/Real #
+STRING ml := config_get_string_value(cp, "tablea1.ml", "coffee"); # Multi-line string #
+FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2)); # 1D array of REALs #
+
+Nick Glazzard 2026.
+-------------------
+COMMENT
+
+PR read "dictionaries.a68" PR
+PR read "utility.a68" PR
+
+MODE CONFIG_PARSE = STRUCT(STRING config_file_name,  REF STRING_DICT config_dict,
+                           STRING_LIST tables);
+
+# Make a config file parser. #
+PROC make_config_parser = (STRING config_file_name) REF CONFIG_PARSE:
+(
+   REF CONFIG_PARSE new = HEAP CONFIG_PARSE;
+   config_file_name OF new := config_file_name;
+   config_dict OF new := STRING_DICT_INIT HEAP STRING_DICT;
+   tables OF new := STRING_LIST_INIT HEAP STRING_LIST;
+   (tables OF new) +:= ""; # There is always a table with no name. #
+   new
+);
+
+# Add a key-value to the string dictionary. #
+PROC config_add_key_value_to_string_dict = (REF CONFIG_PARSE config_parser, STRING table,
+                                            STRING key, STRING value) VOID:
+(
+   STRING full_key := (table = "" | key | table + "." + key);
+   IF (config_dict OF config_parser) HASKEY full_key
+   THEN
+      put(stand error, 
+          ("Config_parser: Duplicate key found: ",full_key," (discarded).",new line))
+   ELSE
+      CHAR dquote = REPR 34; # double quote. #
+      CHAR squote = REPR 39; # single quote. #
+      STRING multi_line_quote = 3 * (REPR 39); # 3 single quotes in a row. #
+      STRING mod_value; # Modified value. We cannot change value as it is not a REF. #
+
+      # Process the value depending on its type. #
+      # Multi-line string. #
+      IF begins_with(value, multi_line_quote)
+      THEN
+         (NOT ends_with(value, multi_line_quote) |
+               put(stand error, 
+                   ("Config_parser: Multi-line string not correctly terminated (key: ",full_key,").",newline));
+               done_adding);
+         mod_value := value[4:(ELEMS value)-3];
+         mod_value := string_escapes_to_chars(mod_value);
+         (config_dict OF config_parser) // full_key := "M" + mod_value;
+         done_adding
+      FI;
+
+      # Basic string. Convert escape sequences to chars for this. #
+      IF begins_with(value, dquote)
+      THEN
+         (NOT ends_with(value, dquote) |
+               put(stand error, 
+                   ("Config_parser: Basic string not correctly terminated (key: ",full_key,").",newline));
+               done_adding);
+         mod_value := value[2:(ELEMS value)-1];
+         mod_value := string_escapes_to_chars(mod_value);
+         (config_dict OF config_parser) // full_key := "S" + mod_value;
+         done_adding
+      FI;
+
+      # Literal string. Do no conversions on this. #
+      IF begins_with(value, squote)
+      THEN
+         (NOT ends_with(value, squote) |
+               put(stand error, 
+                   ("Config_parser: Literal string not correctly terminated (key: ",full_key,").",newline));
+               done_adding);
+         mod_value := value[2:(ELEMS value)-1];
+         (config_dict OF config_parser) // full_key := "L" + mod_value;
+         done_adding
+      FI;
+
+      # Boolean. #
+      IF (value = "true") OR (value = "false")
+      THEN
+         (config_dict OF config_parser) // full_key := "B" + value;
+         done_adding
+      FI;
+
+      # Integer. #
+      IF all_digits_signed(value)
+      THEN
+         (config_dict OF config_parser) // full_key := "I" + value;
+         done_adding
+      FI;
+
+      # Float. #
+      IF string_to_real(value, LOC REAL, TRUE)
+      THEN
+         (config_dict OF config_parser) // full_key := "F" + value;
+         done_adding
+      FI;
+
+      # Array of numbers. 1D only. #
+      IF begins_with(value, "[")
+      THEN
+         (NOT ends_with(value, "]") |
+               put(stand error, 
+                   ("Config_parser: Array not correctly terminated (key: ",full_key,").",newline));
+               done_adding);
+         mod_value := value[2:(ELEMS value)-1];
+         (config_dict OF config_parser) // full_key := "A" + mod_value;
+         done_adding
+      FI;
+      
+      put(stand error, ("Config_parser: Unknown value type (key: ",full_key,").",newline))
+   FI;
+   done_adding:
+   SKIP
+);
+
+# Convert escape sequences to characters. #
+PROC string_escapes_to_chars = (STRING s) STRING:
+(
+   MODE ESC_PAIR = STRUCT( CHAR c, INT r );
+   []ESC_PAIR esc_map = (("b",8), ("t",9), ("n",10), ("f",12), ("r",13),
+                        ("e",27), ("""",34), ("\",92));
+   PROC apply_esc_map = (CHAR c) INT:
+   (
+      INT c_code := -1;
+      FOR i TO ELEMS esc_map
+      DO
+         (c = (c OF esc_map)[i] | c_code := (r OF esc_map)[i]; esc_map_done)
+      OD;
+      esc_map_done:
+      c_code
+   );
+   STRING retval := "";
+   IF count_char_occurrences("\", s) = 0
+   THEN
+      retval := s
+   ELSE
+      INT i := LWB s;
+      WHILE i <= UPB s
+      DO
+         IF s[i] /= "\"
+         THEN
+            retval +:= s[i]
+         ELSE
+            IF i = UPB s  # Trailing \. Just copy it to the output silently. #
+            THEN
+               retval +:= s[i]
+            ELSE
+               i +:= 1;
+               INT code := apply_esc_map(s[i]);
+               (code < 0 | 
+                     put(stand error, ("Unknown escape sequence character: ",s[i]," (ignored).",new line)) |
+                     retval +:= REPR code)
+            FI
+         FI;
+         i +:= 1
+      OD
+   FI;
+   retval
+);
+
+# Read a config file and convert it to entries in a string dictionary. #
+PROC parse_config_file = (REF CONFIG_PARSE config_parser) BOOL:
+(
+   BOOL status := FALSE;
+   BOOL eof := FALSE;
+   PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
+
+   # Open the config file. #
+   FILE fin;
+   IF open(fin, config_file_name OF config_parser, stand in channel) /= 0
+   THEN
+      put(stand error, (("Failed to open config file: ", config_file_name OF config_parser, new line)))
+   ELSE
+      STRING input_line;
+      on file end(fin, at_eof);
+
+      # Initial state. #
+      INT line_no := 1;
+      STRING current_table := "";
+      STRING current_value := "";
+      STRING current_key := "";
+      BOOL in_multi_line_value := FALSE;
+      INT cpos := 0; # Position of a character found by searching. #
+      CHAR hash := REPR 35; # This is only to avoid Emacs A68 syntax hinting going mad with unbalanced hashes. #
+      CHAR nl = REPR 10; # new line code. #
+      CHAR dquote = REPR 34; # double quote. #
+      STRING multi_line_quote = 3 * (REPR 39); # 3 single quotes in a row. #
+
+      # Read all lines until EOF. #
+      DO
+         get(fin, (input_line, new line)); (eof | file_end);
+         input_line := trim(input_line); # Remove leading and trailing white space. #
+         
+         # Ignore empty lines. Unless we are gathering a multi-line value. #
+         IF (ELEMS input_line > 0) OR in_multi_line_value
+         THEN
+
+            # If we do not have a current key, look for a key = sequence. Or a table definition. #
+            IF current_key = ""
+            THEN
+               # Lose everything after the last hash character. But not if quoted. Or multi-line.#
+               IF NOT in_multi_line_value
+               THEN
+                  (last char in string(hash, cpos, input_line) | 
+                        (NOT ODD count_char_occurrences(dquote, input_line[:cpos]) |
+                              input_line := input_line[:cpos-1]));
+                  (ELEMS input_line = 0 | next_line)
+               FI;
+              
+               # Is it a table definition? #
+               IF input_line[1] = "[" # Table. #
+               THEN
+                  IF NOT char in string("]", cpos, input_line)
+                  THEN
+                     put(stand error,
+                         ("Config_parser: Line: ",wint(line_no)," Bad table definition, [ without ]",new line))
+                  ELSE
+                     current_table := input_line[2:cpos-1];
+                     (NOT ((tables OF config_parser) HASELEM current_table) | 
+                           (tables OF config_parser) +:= current_table)
+                  FI
+               
+               # Look for a key = value sequence to get the key and start the value (maybe end it too). #
+               ELSE   
+                  (NOT char in string("=", cpos, input_line) | 
+                        put(stand error, 
+                            ("Config_parser: Line: ",wint(line_no)," Expected = sign in key=value line.",newline));
+                        next_line);
+                  current_key := trim_trailing(input_line[:cpos-1]);
+                  current_value := trim_leading(input_line[cpos+1:]);
+                  (ELEMS current_key = 0 | 
+                        put(stand error, 
+                            ("Config_parser: Line: ",wint(line_no)," Key is empty in key=value line.",newline));
+                        current_value := ""; 
+                        next_line);
+                  (ELEMS current_value = 0 | 
+                        put(stand error, 
+                            ("Config_parser: Line: ",wint(line_no)," Value is empty in key=value line.",newline));
+                        current_key := "";
+                        next_line);
+
+                  current_value := trim(current_value); # EOL comment may introduce trailing spaces to value. #
+                  
+                  # Get multi-line value status. If not multi-line, make a dictionary entry now. #
+                  in_multi_line_value := begins_with(current_value, multi_line_quote);
+                  IF NOT in_multi_line_value
+                  THEN
+                     config_add_key_value_to_string_dict(config_parser, current_table, current_key, current_value);
+                     current_key := "";
+                     current_value := ""
+
+                  # Start of multi-line. Append a newline. #
+                  ELSE
+                     current_value +:= nl
+                  FI
+               FI # Looking for a key or table.  #
+               
+            # Key defined at line start. Must be a multi line string. Or a logic error. #
+            ELSE
+               IF in_multi_line_value
+               THEN
+                  current_value +:= trim(input_line);
+
+                  # Update multi-line status. #
+                  INT size_current_value := ELEMS current_value;
+                  in_multi_line_value := (size_current_value >= 6 | NOT ends_with(current_value, multi_line_quote));
+
+                  # Continuing multi-line? Append a newline character. #
+                  IF in_multi_line_value
+                  THEN
+                     current_value +:= nl
+
+                  # Multi-line has ended. Make a dictionary entry. #
+                  ELSE
+                     config_add_key_value_to_string_dict(config_parser, current_table, current_key, current_value);
+                     current_key := "";
+                     current_value := ""
+                  FI
+
+               # Key defined, but not multi-line here => logic error. #
+               ELSE
+                  put(stand error, 
+                      ("Internal logic error: line read while defining key, but NOT multi-line. How? Giving up.",
+                       new line));
+                  file_end
+               FI 
+            FI # Have a key. #
+         FI; # Line not empty or multi-line value being gathered. #
+
+         next_line:
+         line_no +:= 1
+      OD; # Over lines of file. #
+
+      # End of file.  #
+      file_end:
+      status := TRUE;
+      (in_multi_line_value | put(stand error, ("Unterminated multi-line string at EOF.", newline)));
+      close(fin)
+   FI;
+   status
+);
+
+# Decode the leading type character of a value stored in the string dictionary. #
+PROC config_display_type = (STRING abbreviated) STRING:
+(
+   (abbreviated = "I" | "INTEGER" |
+         (abbreviated = "S" | "BASIC STRING" |
+               (abbreviated = "L" | "LITERAL STRING" |
+                     (abbreviated = "M" | "MULTI-LINE STRING" |
+                           (abbreviated = "F" | "REAL NUMBER" |
+                                 (abbreviated = "B" | "BOOLEAN" |
+                                       (abbreviated = "A" | "ARRAY" |
+                                             "UNKNOWN")))))))
+);
+
+PROC config_undefined_key_msg = (STRING key) VOID:
+(
+   put(stand error, ("Key [",key,"] has not been defined. Defaulting.",new line))
+);
+
+PROC config_wrong_value_type_msg = (STRING key, STRING wanted_type, STRING actual_type_1) VOID:
+(
+   put(stand error, 
+       ("Config_parser: Key [",key,"] has value type other than ", wanted_type," (",
+        config_display_type(actual_type_1),"). Defaulting.",new line))
+);
+
+# Get a string value from the parsed config file. #
+PROC config_get_string_value = (REF CONFIG_PARSE cp, STRING key, STRING default) STRING:
+(
+   STRING retval := "";
+
+   IF NOT ((config_dict OF cp) HASKEY key)
+   THEN
+      config_undefined_key_msg(key);
+      retval := default
+   ELSE
+      STRING value := (config_dict OF cp) // key;
+      IF (value[1] = "S") OR (value[1] = "L") OR (value[1] = "M")
+      THEN
+         retval := value[2:]
+      ELSE
+         config_wrong_value_type_msg(key, "STRING", value[1]);
+         retval := default
+      FI
+   FI;
+   retval
+);
+
+# Get an integer value from the parsed config file. #
+PROC config_get_int_value = (REF CONFIG_PARSE cp, STRING key, INT default) INT:
+(
+   INT retval := 0;
+
+   IF NOT ((config_dict OF cp) HASKEY key)
+   THEN
+      config_undefined_key_msg(key);
+      retval := default
+   ELSE
+      STRING value := (config_dict OF cp) // key;
+      IF (value[1] = "I")
+      THEN
+         retval := string_to_int(value[2:])
+      ELSE
+         config_wrong_value_type_msg(key, "INT", value[1]);
+         retval := default
+      FI
+   FI;
+   retval
+);
+
+# Get a real value from the parsed config file. #
+PROC config_get_real_value = (REF CONFIG_PARSE cp, STRING key, REAL default) REAL:
+(
+   REAL retval := 0;
+
+   IF NOT ((config_dict OF cp) HASKEY key)
+   THEN
+      config_undefined_key_msg(key);
+      retval := default
+   ELSE
+      STRING value := (config_dict OF cp) // key;
+      IF (value[1] = "F")
+      THEN
+         REAL v;
+         IF string_to_real(value[2:], v, TRUE)
+         THEN
+            retval := v
+         ELSE
+            put(stand error, ("Config_parser: Internal error parsing real value. Defaulting.",new line));
+            retval := default
+         FI
+      ELSE
+         config_wrong_value_type_msg(key, "REAL", value[1]);
+         retval := default
+      FI
+   FI;
+   retval
+);
+
+# Get an array of real values from the parsed config file. #
+PROC config_get_real_array = (REF CONFIG_PARSE cp, STRING key, []REAL default) []REAL:
+(
+   FLEX [1:0] REAL retval;
+
+   IF NOT ((config_dict OF cp) HASKEY key)
+   THEN
+      config_undefined_key_msg(key);
+      retval := default
+   ELSE
+      STRING value := (config_dict OF cp) // key;
+      IF (value[1] = "A")
+      THEN
+         []STRING string_values = split_string(value[2:(ELEMS value - 1)], ",");
+         INT n_values := ELEMS string_values;
+         [n_values]REAL result;
+         FOR i TO n_values
+         DO
+            IF NOT string_to_real(trim(string_values[i]), result[i], TRUE)
+            THEN
+               put(stand error, ("Config_parser: Error parsing real value. Defaulting.",new line));
+               retval := default;
+               parse_error
+            FI
+         OD;
+         retval := result
+      ELSE
+         config_wrong_value_type_msg(key, "ARRAY", value[1]);
+         retval := default
+      FI
+   FI;
+
+   parse_error:
+   retval   
+);
+
+# Debug aid: dump contents of the config parser dictionary. #
+PROC config_dump_dictionary = (REF CONFIG_PARSE cp) VOID:
+(
+   put(stand error, ("========= Config parser dictionary =========", new line));
+   FLEX [1:0] STRING config_dict_keys := get_string_dict_keys_array(config_dict OF cp);
+   FOR i TO ELEMS (config_dict OF cp)
+   DO
+      put(stand error, 
+          ((config_dict_keys[i]," -> ",(config_dict OF cp)//config_dict_keys[i],newline)))
+   OD;
+   put(stand error, ("============================================", new line))
+);
+
+# ------ #
+# TESTS. #
+# ------ #
+
+IF FALSE
+THEN
+
+REF CONFIG_PARSE cp := make_config_parser("test.ini");
+IF NOT parse_config_file(cp)
+THEN
+   put(stand error, ("Failed to parse config file. Giving up.", newline));
+   stop
+FI;
+
+config_dump_dictionary(cp);
+
+STRING again := config_get_string_value(cp, "again", "nuts");
+put(stand error, ("again = ", again, newline));
+STRING a := config_get_string_value(cp, "a", "nuts");
+put(stand error, ("a = ", a, newline));
+
+INT anint := config_get_int_value(cp, "anint", -1234);
+put(stand error, ("anint = ", anint, newline));
+
+REAL afloat := config_get_real_value(cp, "afloat", 2.718);
+put(stand error, ("afloat = ", afloat, newline));
+
+STRING ml := config_get_string_value(cp, "tablea1.ml", "coffee");
+put(stand error, ("ml = ", ml, newline));
+
+INT someint := config_get_int_value(cp, "tablea1.someint", -1234);
+put(stand error, ("someint = ", someint, newline));
+
+FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2));
+put(stand error, ("ra = ", ra, newline));
+
+INT anotherint := config_get_int_value(cp, "anotherint", -1234);
+put(stand error, ("anotherint = ", anotherint, newline));
+
+put(stand error, ("Number of tables = ",wint(ELEMS (tables OF cp)),newline));
+FOR i TO ELEMS (tables OF cp) DO put(stand error, ((tables OF cp) GET i, newline)) OD;
+
+put(stand error, ("Tables as array: ", string_list_as_array(tables OF cp), newline))
+FI;

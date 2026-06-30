@@ -1,0 +1,1515 @@
+COMMENT
+vcpgui.a68 - A somewhat specialised GUI for controlling some instruments.
+=========================================================================
+
+Nick Glazzard 2026.
+-------------------
+COMMENT
+
+PR read "utility.a68" PR
+PR read "arg_parser.a68" PR
+
+# ================================== #
+# Run DSURF and communicate with it. #
+# ================================== #
+
+# Handle end of the pipe connections to DSURF (DSURF exited?). #
+# Establish by using "on logical file end(pipes)" in main line,  #
+PROC dsurf_end_handler = (REF FILE f) BOOL:
+(
+   put(stand error, ("DSURF seems to have exited. Exiting this end.", new line));
+   GOTO end
+);
+
+# Run DSURF returning a pair of pipes connected to its stdin and stdout. #
+PROC open_dsurf = (STRING title) PIPE:
+(
+   # Get necessary environment variables. #
+   # At least XDG_RUNTIME_DIR and DISPLAY are needed. #
+   []STRING envar_names = ("XDG_RUNTIME_DIR",
+                           "XDG_SESSION_DESKTOP",
+                           "XDG_SESSION_TYPE",
+                           "XDG_CURRENT_DESKTOP",
+                           "DISPLAY");
+   [ELEMS envar_names]STRING envars;
+   FOR i TO ELEMS envars
+   DO
+      STRING envalue = get env(envar_names[i]);
+      IF envalue = ""
+      THEN
+         put(stand error, ("open_dsurf(): Essential environment variable is not defined: ", 
+                           envar_names[i], new line));
+         stop
+      FI;
+      envars[i] := envar_names[i] + "=" + envalue
+   OD;
+
+   # Run the display program and return the data needed to talk to it. #
+   PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf", "--title", title), envars);
+   IF pid OF dsurf_pipe = 0
+   THEN
+      put(stand error, ("open_dsurf(): Failed to create child process ", new line));
+      stop
+   FI;
+   dsurf_pipe
+);
+
+# Close pipes to DSURF. #
+PROC close_dsurf = (PIPE p) VOID:
+(
+   close(read OF p);
+   close(write OF p)
+);
+
+# Synchronise client and DSURF. #
+PROC sync_dsurf = (PIPE p, STRING s) VOID:
+(
+   STRING s := read_dsurf(p);
+   WHILE s /= "SYNC"
+   DO
+      s := read_dsurf(p)
+   OD
+);
+
+# Write strings to DSURF. #
+PROC write_dsurf = ( PIPE p, STRING outstring ) VOID:
+   put(write OF p, (outstring, new line));
+
+# Read strings from DSURF. #
+PROC read_dsurf = ( PIPE p ) STRING:
+(
+   STRING instring := "";
+   get(read OF p, (instring, new line));
+   CO put(stand error, ("[",instring,"]",new line)); CO
+   instring
+);
+
+# ======================== #
+# DSURF DRAWING PRIMITIVES #
+# ======================== #
+
+COMMENT
+It turned out that having DSURF maintain any state itself
+was a bad idea. It didn't work well with the display list
+(background and overlay) and removal ideas. So any state
+that needs to be maintained (drawing colour and TTF font
+currently) is kept on this side now. Routines such as
+ds_set_colour_rgba() and ds_set_font() only change DSTATE
+here. Every "command" sent to DSURF specifies the colour,
+font, etc. and they are obtained from DSTATE.
+COMMENT
+
+MODE RGBACOLOUR = STRUCT( INT r, g, b, a );
+MODE DSTATE = STRUCT(RGBACOLOUR c, INT ifont);
+DSTATE dstate := ((0, 0, 0, 255), 1);
+INT max_dstates = 10;
+[max_dstates]DSTATE dstate_stack;
+INT dstate_sp := 0;
+
+# Push the DSURF drawing state. #
+PROC push_dstate = VOID:
+(
+   IF dstate_sp = max_dstates
+   THEN
+      put(stand error, ("push_dstate(): DSTATE stack is full. Ignored.", new line))
+   ELSE
+      dstate_sp +:= 1;
+      dstate_stack[dstate_sp] := dstate
+   FI
+);
+
+# Pop the DSURF drawing state. #
+PROC pop_dstate = VOID:
+(
+   IF dstate_sp = 0
+   THEN
+      put(stand error, ("pop_dstate(): DSTATE stack is empty. Ignored.", new line))
+   ELSE
+      dstate := dstate_stack[dstate_sp];
+      dstate_sp -:= 1
+   FI
+);
+
+# Convert the RGBA part of the drawing state to string. #
+PROC rgba_string = STRING:
+(
+   string(LOC STRING, (",",wint(r OF c OF dstate),",",wint(g OF c OF dstate),",",
+                       wint(b OF c OF dstate),",",wint(a OF c OF dstate)))
+);
+
+# Convert RGB part of drawing state and the font number to string. #
+PROC rgb_font_string = STRING:
+(
+   string(LOC STRING, (",",wint(r OF c OF dstate),",",wint(g OF c OF dstate),
+                       ",",wint(b OF c OF dstate),",",wint(ifont OF dstate)))
+);
+
+# Reset the display list. #
+PROC ds_reset_display = ( PIPE p ) VOID:
+(
+   write_dsurf(p, "$*reset_display$")
+);
+
+# Show display (swap buffers) #
+PROC ds_show_display = ( PIPE p ) VOID:
+(
+   write_dsurf(p, "$*show_display_sync$");
+   sync_dsurf(p, "show_display")
+);
+
+# Use the main display list.  #
+PROC ds_use_main = ( PIPE p ) VOID:
+(
+   write_dsurf(p, "$*use_main$")
+);
+
+# Use the overlay display list.  #
+PROC ds_use_overlay = ( PIPE p ) VOID:
+(
+   write_dsurf(p, "$*use_overlay$")
+);
+
+# Load a texture atlas. #
+PROC ds_load_texture = ( PIPE p, STRING filename ) VOID:
+(
+   write_dsurf(p, "$*load_texture$,$"+filename+"$");
+   sync_dsurf(p, "load_texture")
+);
+
+# Load a TrueType font. #
+PROC ds_load_font = ( PIPE p, STRING filename, INT size, INT ifont ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$*load_font$,$"+filename+"$,",wint(size),",",wint(ifont)));
+   write_dsurf(p, out_string);
+   sync_dsurf(p, "load_font")
+);
+
+# Set the drawing colour. #
+PROC ds_set_colour_rgba = ( PIPE p, INT r, g, b, a ) VOID:
+(
+   r OF c OF dstate := clamp_255(r);
+   g OF c OF dstate := clamp_255(g);
+   b OF c OF dstate := clamp_255(b);
+   a OF c OF dstate := clamp_255(a)
+);
+
+PROC ds_set_colour_rgba_struct = ( PIPE p, RGBACOLOUR c ) VOID:
+(
+   ds_set_colour_rgba(p, r OF c, g OF c, b OF c, a OF c)
+);
+
+# Clear the display (fill with current colour).  #
+PROC ds_clear = ( PIPE p ) VOID:
+(
+   write_dsurf(p, "$clear$"+rgba_string)
+);
+
+# Draw a rectangle. #
+PROC ds_rectangle = ( PIPE p, INT x1, y1, x2, y2 ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$rectangle$,",wint(x1),",",wint(y1),",",wint(x2),",",wint(y2)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Draw a rounded rectangle. #
+PROC ds_rounded_rectangle = ( PIPE p, INT x1, y1, x2, y2, r ) VOID:
+(
+   STRING out_string := string(LOC STRING, 
+                               ("$rounded_rectangle$,",wint(x1),",",wint(y1),",",wint(x2),",",wint(y2),",",wint(r)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Draw a filled rectangle. #
+PROC ds_rectangle_filled = ( PIPE p, INT x1, y1, x2, y2 ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$rectangle_filled$,",wint(x1),",",wint(y1),",",wint(x2),",",wint(y2)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Draw a filled rounded rectangle. #
+PROC ds_rounded_rectangle_filled = ( PIPE p, INT x1, y1, x2, y2, r ) VOID:
+(
+   STRING out_string := string(LOC STRING, 
+                               ("$rounded_rectangle_filled$,",
+                                wint(x1),",",wint(y1),",",wint(x2),",",wint(y2),",",wint(r)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add a line to the display list. #
+PROC ds_line = ( PIPE p, INT x1, y1, x2, y2 ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$line$,",wint(x1),",",wint(y1),",",wint(x2),",",wint(y2)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add a thick line to the display list. #
+PROC ds_thick_line = ( PIPE p, INT x1, y1, x2, y2, w ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$thick_line$,",
+                                            wint(x1),",",wint(y1),",",wint(x2),",",wint(y2),",",wint(w)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add a circle to the display list. #
+PROC ds_circle = ( PIPE p, INT x1, y1, r ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$circle$,",wint(x1),",",wint(y1),",",wint(r)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add a filled circle to the display list. #
+PROC ds_circle_filled = ( PIPE p, INT x1, y1, r ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$circle_filled$,",wint(x1),",",wint(y1),",",wint(r)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add an arc to the display list. #
+PROC ds_arc = ( PIPE p, INT x1, y1, r, start_angle, end_angle ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$arc$,",wint(x1),",",wint(y1),",",wint(r),
+                                           ",",wint(start_angle),",",wint(end_angle)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add an ellipse to the display list. #
+PROC ds_ellipse = ( PIPE p, INT x1, y1, rx, ry ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$ellipse$,",wint(x1),",",wint(y1),",",wint(rx),",",wint(ry)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add a filled ellipse to the display list. #
+PROC ds_ellipse_filled = ( PIPE p, INT x1, y1, rx, ry ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$ellipse_filled$,",wint(x1),",",wint(y1),",",wint(rx),",",wint(ry)));
+   write_dsurf(p, out_string+rgba_string)
+);
+
+# Add basic text to the display list. #
+PROC ds_text = ( PIPE p, STRING s, INT x, y, BOOL centered, INT dy ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$text$,",wint(x),",",wint(y),",$"+s+"$,",
+                                            wint((centered | 1 | 0)),",",wint(dy)));
+   write_dsurf(p, out_string+rgba_string)  
+);
+
+# Add text drawn with a font renderer to the display list. #
+PROC ds_text_in_font = ( PIPE p, STRING s, INT x, y, BOOL centered, INT dy ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$text_in_font$,",wint(x),",",wint(y),",$"+s+"$,",
+                                            wint((centered | 1 | 0)),",",wint(dy)));
+   write_dsurf(p, out_string+rgb_font_string)  
+);
+
+# Set the current font by number. #
+PROC ds_set_font = ( PIPE p, INT ifont ) VOID:
+(
+   ifont OF dstate := clamp_int(ifont, 0, 4)
+);
+
+# Draw a sub-texture from the current texture atlas. #
+PROC ds_sub_texture = ( PIPE p, STRING name, INT x, y, downscale, BOOL centered, INT rotang, rx, ry ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$sub_texture$,$"+name+"$,",wint(x),",",wint(y),",",wint(downscale),",",
+                                            wint((centered | 1 | 0)), ",",wint(rotang),",",wint(rx),",",wint(ry)));
+   write_dsurf(p, out_string)  
+);
+
+# Add a sense rectangle, specifying the events of interest. #
+PROC ds_sense_rect = ( PIPE p, STRING tag, STRING event_mask, INT x, y, sx, sy, downscale, BOOL centered ) VOID:
+(
+   STRING valid_event_chars = "udamw";
+
+   FOR i TO ELEMS event_mask
+   DO
+      IF NOT char in string(event_mask[i], NIL, valid_event_chars)
+      THEN
+         put(stand error, (("ds_sense_rect(): Invalid character in event_mask (",event_mask[i],")",new line)));
+         done
+      FI
+   OD;
+
+   INT xl := (centered | x - (sx % (2 * downscale)) | x); # Note integer division is %. #
+   INT yl := (centered | y - (sy % (2 * downscale)) | y);
+
+   STRING out_string := string(LOC STRING, ("$*sense_rect$,$"+tag+"$,",\
+wint(xl),",",wint(yl),",",wint(sx%downscale),",",wint(sy%downscale),\
+",$"+event_mask+"$"));
+   write_dsurf(p, out_string);
+
+done:
+   SKIP
+);
+
+# Remove all primitives at (x,y) from a display list. #
+PROC ds_remove_at = ( PIPE p, INT x, y ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$*remove$,",wint(x),",",wint(y)));
+   write_dsurf(p, out_string)
+);
+
+
+# ============== #
+#  TINY UI CODE  #
+# ============== #
+
+MODE USERPROC = PROC (STRING, STRING, ANYBUTTONREF) BOOL;
+
+MODE PUSHBUTTON = STRUCT( STRING tag, STRING label, USERPROC proc, INT x, y, RGBACOLOUR c );
+MODE TOGGLEBUTTON = STRUCT( STRING tag, STRING label, USERPROC proc, INT x, y, BOOL state,
+                          RGBACOLOUR c );
+MODE RADIOBUTTON = STRUCT( STRING tag, STRING labels, USERPROC proc, INT x, y, INT which, INT n_buttons,
+                           RGBACOLOUR c );
+MODE KNOB = STRUCT( STRING tag, STRING label, USERPROC proc, INT x, y, INT angmin, angmax, REAL vmin, vmax, vnow,
+                    RGBACOLOUR c );
+MODE SELECTOR = STRUCT( STRING tag, STRING labels, USERPROC proc, INT x, y, INT which, INT n_choices,
+                        RGBACOLOUR c );
+MODE KEYPAD = STRUCT( STRING tag, USERPROC proc, INT x, y, INT ivalue, isign, idp, STRING ndtag,
+                      INT old_ivalue, old_isign, old_idp, RGBACOLOUR c );
+MODE NUMERICDISPLAY = STRUCT( STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup,
+                              STRING units, RGBACOLOUR c );
+
+MODE ANYBUTTONREF = UNION(REF PUSHBUTTON, REF TOGGLEBUTTON, REF RADIOBUTTON, REF NUMERICDISPLAY,
+                         REF KNOB, REF SELECTOR, REF KEYPAD);
+
+FLEX [1:0] ANYBUTTONREF components;
+
+MODE PUSHBUTTON_LAYOUT = STRUCT( INT width, INT height, INT downscale );
+MODE TOGGLEBUTTON_LAYOUT = STRUCT( INT width, INT height, INT downscale );
+MODE RADIOBUTTON_LAYOUT = STRUCT( INT width, INT height, INT downscale );
+MODE KNOB_LAYOUT = STRUCT( INT width, INT height, INT downscale );
+MODE SELECTOR_LAYOUT = STRUCT( INT width, INT height, INT downscale );
+MODE KEYPAD_LAYOUT = STRUCT( INT width, INT height, INT downscale );
+MODE NUMERICDISPLAY_LAYOUT = STRUCT( INT width, INT height, INT downscale, INT bezel_width );
+
+PUSHBUTTON_LAYOUT pushbutton_metrics := (100, 64, 2);
+TOGGLEBUTTON_LAYOUT togglebutton_metrics := (100, 64, 2);
+RADIOBUTTON_LAYOUT radiobutton_metrics := (100, 64, 2);
+KNOB_LAYOUT knob_metrics := (150, 150, 2);
+SELECTOR_LAYOUT selector_metrics := (150, 200, 2);
+KEYPAD_LAYOUT keypad_metrics := (65, 64, 2); # Size of one button. #
+NUMERICDISPLAY_LAYOUT numericdisplay_metrics := (256, 341, 5, 5);
+
+# Add a component "button" of any type to the UI. #
+PROC add_component = (ANYBUTTONREF component) VOID:
+(
+   [UPB components + 1] ANYBUTTONREF temp;
+   temp[: UPB components] := components;
+   components := temp;
+   components[UPB components] := component
+);
+
+COMMENT
+Notes: add_XXX is called from "user code" to add a component.
+       instantiate_XXX is internal, called from instantiate(), which the user calls
+          after all add_XXX calls have been made.
+       update_XXX is internal, called from update_component(), which is called from run_event_loop()
+          which the user calls after instantiate() to kick off "event handling".
+       set_XXX may be called from user code to set the state of a component.
+COMMENT
+
+# ------------------ #
+# STANDARD USERPROCs #
+# ------------------ #
+
+#  Do nothing. #
+PROC null_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   COMMENT
+   Example of how to access state data. Use a conformity clause.
+   CASE state
+   IN
+      (REF PUSHBUTTON pb): (print(("pb, x,y = ",x OF pb, y OF pb, new line)))
+   OUT
+      put(stand error, (("Expected a push button. Got something else!", new line)))
+   ESAC;
+   COMMENT
+
+   FALSE
+);
+
+# Exit the event loop. #
+PROC quit_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   TRUE
+);
+
+# ----------- #
+# PUSH BUTTON #
+# ----------- #
+
+# Read layout data for a push button from a texture atlas file. #
+PROC read_pushbutton_metrics = (STRING talfile) VOID:
+(
+   [3]INT data := (0,0,0);
+   ( get_metric_info(talfile, "##pushbutton", data) = 3 | pushbutton_metrics := (data[1], data[2], data[3]))
+); 
+
+# Make a push button. #
+PROC make_pushbutton = (STRING tag, STRING label, USERPROC proc, INT x, y) REF PUSHBUTTON:
+(
+   REF PUSHBUTTON new = HEAP PUSHBUTTON;
+   new := (tag, label, proc, x, y, c OF dstate);
+   new
+);
+
+# Add a push button to the UI. #
+PROC add_pushbutton = (STRING tag, STRING label, USERPROC proc, INT x, y) VOID:
+(
+   (check_new_tag(tag) | add_component( make_pushbutton(tag, label, proc, x, y) ))
+);
+
+# Put the drawing commands for a push button in the DSURF display list. #
+PROC instantiate_pushbutton = (PIPE p, REF PUSHBUTTON pb) VOID:
+(
+   push_dstate;
+   ds_set_colour_rgba_struct(p, c OF pb);
+   ds_sub_texture(p, "button", x OF pb, y OF pb, downscale OF pushbutton_metrics, TRUE, 0, 0, 0);
+   ds_sense_rect(p, tag OF pb, "ud", x OF pb, y OF pb, width OF pushbutton_metrics, 
+                 height OF pushbutton_metrics, downscale OF pushbutton_metrics, TRUE);
+   ds_text_in_font(p, label OF pb, x OF pb, y OF pb, TRUE, 0);
+   pop_dstate
+);
+
+#  Update the appearance of a push button. Does nothing at present. #
+PROC update_pushbutton = (PIPE p, REF PUSHBUTTON pb, STRING event) VOID:
+(
+   SKIP
+);
+
+# Set (i.e. push) a push button. #
+PROC set_pushbutton = (PIPE p, STRING tag, BOOL callproc) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF PUSHBUTTON pb): (
+            update_pushbutton(p, pb, "D");
+            (callproc | VOID((proc OF pb) (tag, "D", components[i_component])))
+         )
+      OUT
+         put(stand error, (("set_pushbutton(): Component [",tag,"] is not a PUSHBUTTON.",newline)))
+      ESAC
+   FI
+);
+
+# ------------- #
+# TOGGLE BUTTON #
+# ------------- #
+
+# Read layout data for a toggle button from a texture atlas file. #
+PROC read_togglebutton_metrics = (STRING talfile) VOID:
+(
+   [3]INT data := (0,0,0);
+   ( get_metric_info(talfile, "##togglebutton", data) = 3 | togglebutton_metrics := (data[1], data[2], data[3]))
+); 
+
+# Make a toggle button. #
+PROC make_togglebutton = (STRING tag, STRING label, USERPROC proc, INT x, y, BOOL state) REF TOGGLEBUTTON:
+(
+   REF TOGGLEBUTTON new = HEAP TOGGLEBUTTON;
+   new := (tag, label, proc, x, y, state, c OF dstate);
+   new
+);
+
+# Add a toggle button to the UI. #
+PROC add_togglebutton = (STRING tag, STRING label, USERPROC proc, INT x, y, BOOL state) VOID:
+(
+   (check_new_tag(tag) | add_component( make_togglebutton(tag, label, proc, x, y, state) ))
+);
+
+# Put the drawing commands for a toggle button in the DSURF display list. #
+PROC instantiate_togglebutton = (PIPE p, REF TOGGLEBUTTON tb) VOID:
+(
+   push_dstate;
+   STRING which_button := (state OF tb | "button-on" | "button-off");
+   ds_set_colour_rgba_struct(p, c OF tb);
+   ds_sub_texture(p, which_button, x OF tb, y OF tb, downscale OF togglebutton_metrics, TRUE, 0, 0, 0);
+   ds_sense_rect(p, tag OF tb, "ud", x OF tb, y OF tb, 
+                 width OF togglebutton_metrics, height OF togglebutton_metrics, 
+                 downscale OF togglebutton_metrics, TRUE);
+   ds_text_in_font(p, label OF tb, x OF tb, y OF tb, TRUE, (height OF togglebutton_metrics) % 12);
+   pop_dstate
+);
+
+#  Update the state and appearance of a toggle button. #
+PROC update_togglebutton = (PIPE p, REF TOGGLEBUTTON tb, STRING event) VOID:
+(
+   IF event[1] = "D"
+   THEN
+      push_dstate;
+      state OF tb := NOT (state OF tb);
+      STRING which_button = (state OF tb | "button-on" | "button-off");
+      ds_set_colour_rgba_struct(p, c OF tb);
+      ds_remove_at(p, x OF tb, y OF tb);
+      ds_sub_texture(p, which_button, x OF tb, y OF tb, downscale OF togglebutton_metrics, TRUE, 0, 0, 0);
+      ds_text_in_font(p, label OF tb, x OF tb, y OF tb, TRUE, (height OF togglebutton_metrics) % 12);
+      ds_show_display(dsurf_pipe);
+      pop_dstate
+   FI
+);
+
+# Set the state of a toggle button. Optionally call its USERPROC. #
+PROC set_togglebutton = (PIPE p, STRING tag, BOOL on_or_off, BOOL callproc) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF TOGGLEBUTTON tb): (
+            # Toggle if the current state is not the desired state. #
+            IF (state OF tb) /= on_or_off
+            THEN
+               update_togglebutton(p, tb, "D");
+               (callproc | VOID((proc OF tb) (tag, "D", components[i_component])))
+            FI
+         )
+      OUT
+         put(stand error, (("set_togglebutton(): Component [",tag,"] is not a TOGGLEBUTTON.",newline)))
+      ESAC
+   FI
+);
+
+# ------------ #
+# RADIO BUTTON #
+# ------------ #
+
+# Read layout data for a radio button from a texture atlas file. #
+PROC read_radiobutton_metrics = (STRING talfile) VOID:
+(
+   [3]INT data := (0,0,0);
+   ( get_metric_info(talfile, "##radiobutton", data) = 3 | radiobutton_metrics := (data[1], data[2], data[3]))
+); 
+
+# Make a radio button. #
+PROC make_radiobutton = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT which) REF RADIOBUTTON:
+(
+   REF RADIOBUTTON new = HEAP RADIOBUTTON;
+   []STRING label_array = split_string(labels, ",");
+   INT n_buttons = ELEMS label_array;
+   new := (tag, labels, proc, x, y, which, n_buttons, c OF dstate);
+   new
+);
+
+# Add a radio button to the UI. #
+PROC add_radiobutton = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT which) VOID:
+(
+   (check_new_tag(tag) | add_component( make_radiobutton(tag, labels, proc, x, y, which) ))
+);
+
+# Put the drawing commands for a radio button in the DSURF display list. #
+PROC instantiate_radiobutton = (PIPE p, REF RADIOBUTTON rb) VOID:
+(
+   push_dstate;
+   []STRING label_array = split_string(labels OF rb, ",");
+   INT button_width := (width OF radiobutton_metrics) % (downscale OF radiobutton_metrics);
+   INT array_width := (n_buttons OF rb) * button_width;
+   INT xc := (x OF rb) - array_width % 2;
+   INT yc := y OF rb;
+
+   ds_set_colour_rgba_struct(p, c OF rb);
+
+   FOR i TO (n_buttons OF rb)
+   DO
+      ds_sub_texture(p, (i = which OF rb | "button-on" | "button-off"), xc, yc, 
+                     downscale OF radiobutton_metrics, TRUE, 0, 0, 0);
+      STRING sub_tag := tag OF rb + "_" + wint(i);
+      ds_sense_rect(p, sub_tag, "ud", xc, yc, width OF radiobutton_metrics, 
+                    height OF radiobutton_metrics, downscale OF radiobutton_metrics, TRUE);
+      ds_text_in_font(p, label_array[i], xc, yc, TRUE, (height OF radiobutton_metrics) % 12);
+      xc +:= button_width
+   OD;
+   pop_dstate
+);
+
+#  Update the state and appearance of a radio button (group). #
+PROC update_radiobutton = (PIPE p, REF RADIOBUTTON rb, STRING event, STRING sub_tag) VOID:
+(
+   IF event[1] = "D"
+   THEN
+      # Find which of the radio group buttons has been pressed. #
+      STRING r_sub_tag := sub_tag; # sub_tag cannot be changed, but gets() might (it won't). #
+      INT new_which;
+      gets(r_sub_tag, new_which);
+      []STRING label_array = split_string(labels OF rb, ",");
+
+      # If it isn't the one already set, update. #
+      IF new_which /= (which OF rb)
+      THEN
+         push_dstate;
+         ds_set_colour_rgba_struct(p, c OF rb);
+
+         # Turn current button off. #
+         INT button_width := (width OF radiobutton_metrics) % (downscale OF radiobutton_metrics);
+         INT array_width := (n_buttons OF rb) * button_width;
+         INT xc := (x OF rb) - array_width % 2;
+         INT x_sub := xc + (which OF rb - 1) * button_width;
+         ds_remove_at(p, x_sub, y OF rb);
+         ds_sub_texture(p, "button-off", x_sub, y OF rb, downscale OF radiobutton_metrics, TRUE, 0, 0, 0);
+         ds_text_in_font(p, label_array[which OF rb], x_sub, y OF rb, TRUE, (height OF radiobutton_metrics) % 12);
+
+         # Turn new button on. #
+         x_sub := xc + (new_which - 1) * button_width;
+         ds_remove_at(p, x_sub, y OF rb);
+         ds_sub_texture(p, "button-on", x_sub, y OF rb, downscale OF radiobutton_metrics, TRUE, 0, 0, 0);
+         ds_text_in_font(p, label_array[new_which], x_sub, y OF rb, TRUE, (height OF radiobutton_metrics) % 12);
+
+         # Update which. #
+         which OF rb := new_which;
+         ds_show_display(p);
+         pop_dstate
+      FI # button has changed. #
+   FI # down event. #
+);
+
+# Set the state of a radio button. Optionally call its USERPROC. #
+PROC set_radiobutton = (PIPE p, STRING tag, INT which, BOOL callproc) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF RADIOBUTTON rb): (
+            IF check_in_range_int(which, 1, n_buttons OF rb)
+            THEN
+               STRING sub_tag = wint(which);
+               update_radiobutton(p, rb, "D", sub_tag);
+               # Explicitly cast BOOL return of USERPROC to VOID to prevent compiler complaining. #
+               (callproc | VOID((proc OF rb) (tag, "D", components[i_component])))
+            ELSE
+               put(stand error, (("set_radiobutton(): Button number must be in range 1 to ",
+                                  wint(n_buttons OF rb),newline)))
+            FI
+         )
+      OUT
+         put(stand error, (("set_radiobutton(): Component [",tag,"] is not a RADIOBUTTON.",newline)))
+      ESAC
+   FI
+);
+
+# --------------- #
+# NUMERIC DISPLAY #
+# --------------- #
+
+# Read layout data for a numeric display from a texture atlas file. #
+PROC read_numericdisplay_metrics = (STRING talfile) VOID:
+(
+   [4]INT data := (0,0,0,0);
+   ( get_metric_info(talfile, "##numericdisplay", data) = 4 | 
+         numericdisplay_metrics := (data[1], data[2], data[3], data[4]))
+); 
+
+# Make a numeric display. #
+PROC make_numericdisplay = (STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup) REF NUMERICDISPLAY:
+(
+   REF NUMERICDISPLAY new = HEAP NUMERICDISPLAY;
+   new := (tag, x, y, value, n_digits, n_dps, lz_sup, "", c OF dstate);
+   new
+);
+
+# Add a numeric display. #
+PROC add_numericdisplay = (STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup) VOID:
+(
+   (check_new_tag(tag) | add_component( make_numericdisplay(tag, x, y, value, n_digits, n_dps, lz_sup) ))
+);
+
+# Calculate layout parameters for a numeric display. #
+PROC calc_numeric_layout = (REF NUMERICDISPLAY nd, REF INT digit_width, array_width, xc, yc) VOID:
+(
+   digit_width := (width OF numericdisplay_metrics) % (downscale OF numericdisplay_metrics);
+   array_width := (n_digits OF nd + 2) * digit_width;
+   xc := (x OF nd) - array_width % 2 + digit_width;
+   yc := (y OF nd)
+);
+
+# Calculate where a decimal point should be drawn. This is a bit hairy. #
+PROC calc_dp_position = (REF NUMERICDISPLAY nd, INT digit_width, array_width, yc, REF INT xcc, ycc) VOID:
+(
+   INT xe := (x OF nd) + array_width % 2;
+   xcc := xe - (min2int(n_dps OF nd, n_digits OF nd)+1) * digit_width - ROUND ((digit_width % 2) - (0.06 * digit_width));
+   ycc := ROUND (yc + (height OF numericdisplay_metrics % downscale OF numericdisplay_metrics) / 3.5)
+);
+
+# Calculate corners of a bezel rectangle for a numeric display. #
+PROC calc_numeric_bezel = (REF NUMERICDISPLAY nd, INT digit_width, array_width, REF INT x1, y1, x2, y2) VOID:
+(
+   x1 := (x OF nd) - array_width % 2 - bezel_width OF numericdisplay_metrics - (digit_width % 2);
+   y1 := (y OF nd) - (height OF numericdisplay_metrics % downscale OF numericdisplay_metrics) % 2 - 
+         bezel_width OF numericdisplay_metrics;
+   x2 := x1 + array_width + 2 * bezel_width OF numericdisplay_metrics;
+   y2 := y1 + (height OF numericdisplay_metrics % downscale OF numericdisplay_metrics) + 
+         2 * bezel_width OF numericdisplay_metrics
+);
+
+# Put the drawing commands for a numeric display in the DSURF display list. #
+PROC instantiate_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd) VOID:
+(
+   push_dstate;
+   []STRING digit_textures = ("zero","one","two","three","four","five","six","seven","eight","nine");
+   INT digit_width, array_width, xc, yc, x1, y1, x2, y2;
+
+   # Calculate coordinates for drawing these things. #
+   calc_numeric_layout(nd, digit_width, array_width, xc, yc);
+   calc_numeric_bezel(nd, digit_width, array_width, x1, y1, x2, y2);
+   put(stand error,("*** yc = ", wint(yc), newline));
+
+   # Draw a "bezel" using a rounded rectangle. #
+   ds_set_colour_rgba_struct(p, c OF nd);
+   ds_rounded_rectangle_filled(p, x1, y1, x2, y2, bezel_width OF numericdisplay_metrics );
+
+   # It would be easier to work right to left, were it not for leading zero suppression. #
+   # But we optionally want that, so work left to right. #
+   BOOL value_negative := (value OF nd) < 0;
+   INT xc_top := xc;
+   INT working_value := ABS (value OF nd);
+   INT divider := 10 ** ((n_digits OF nd) - 1);
+   BOOL leading_zeros := lz_sup OF nd;
+   FOR i TO (n_digits OF nd)
+   DO
+      INT this_digit := min2int(9, working_value % divider);  # Need to detect value too big for digits overflow! #
+      leading_zeros := leading_zeros AND (this_digit = 0);
+      (NOT leading_zeros | ds_sub_texture(p, digit_textures[this_digit+1], xc, yc, # show leading zeros. #
+                                          downscale OF numericdisplay_metrics, TRUE, 0, 0, 0) |
+            ((i = n_digits OF nd) AND (value OF nd = 0) | # suppress lzs, but show one zero if all zero. #
+                  ds_sub_texture(p, "zero", xc, yc, downscale OF numericdisplay_metrics, TRUE, 0, 0, 0) |
+                     ds_sub_texture(p, "off", xc, yc, downscale OF numericdisplay_metrics, TRUE, 0, 0, 0)));
+      xc +:= digit_width;
+      working_value -:= divider * this_digit;
+      divider := divider % 10
+   OD;
+
+   # Put a digit sized blank at the far right. Can be used for units, etc. #
+   ds_sub_texture(p, "blank", xc, yc, downscale OF numericdisplay_metrics, TRUE, 0, 0, 0);
+
+   # Add a decimal point if n_dps is not 0. This requires a texture image with alpha. #
+   IF (n_dps OF nd) /= 0
+   THEN
+      INT xcc, ycc;
+      calc_dp_position(nd, digit_width, array_width, yc, xcc, ycc);
+      ds_sub_texture(p, "point", xcc, ycc, downscale OF numericdisplay_metrics, TRUE, 0, 0, 0)
+   FI;
+
+   # If the value is negative, display a minus sign. If positive, a plus sign (or blank?). #
+   (value_negative | ds_sub_texture(p, "minus", xc_top-digit_width, yc, 
+                                    downscale OF numericdisplay_metrics, TRUE, 0, 0, 0) |
+         ds_sub_texture(p, "plus", xc_top-digit_width, yc, 
+                        downscale OF numericdisplay_metrics, TRUE, 0, 0, 0));
+
+   # If a units string has been set, draw it. #
+   (units OF nd /= "" | ds_text_in_font(p, units OF nd, 
+                                        (x OF nd) + array_width % 2 - digit_width, 
+                                        yc - (y2 - y1) % 4, TRUE, 0));
+
+   pop_dstate
+);
+
+# Update the contents of a numeric display. #
+PROC update_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd, INT value, INT n_dps, BOOL lz_sup) VOID:
+(
+   INT digit_width, array_width, xc, yc, x1, y1, x2, y2;
+   calc_numeric_layout(nd, digit_width, array_width, xc, yc);
+   calc_numeric_bezel(nd, digit_width, array_width, x1, y1, x2, y2);
+
+   # Remove "bezel". #
+   ds_remove_at(p, x1, y1);
+
+   # Remove the sign area. #
+   ds_remove_at(p, xc-digit_width, yc);
+
+   # Remove digits. #
+   FOR i TO (n_digits OF nd)
+   DO
+      ds_remove_at(p, xc, yc);
+      xc +:= digit_width
+   OD;
+
+   # Remove the right blank. #
+   ds_remove_at(p, xc, yc);
+
+   # Remove decimal point, if there is one. #
+   IF (n_dps OF nd) /= 0
+   THEN
+      INT xcc, ycc;
+      calc_dp_position(nd, digit_width, array_width, yc, xcc, ycc);
+      ds_remove_at(p, xcc, ycc)
+   FI;
+
+   # Update state. #
+   value OF nd := value;
+   n_dps OF nd := n_dps;
+   lz_sup OF nd := lz_sup;
+
+   # Insert modified drawings. #
+   instantiate_numericdisplay(p, nd)
+);
+
+# Set the contents of a numeric display. Note value must be scaled according to n_dps by the caller. #
+PROC set_numericdisplay = (PIPE p, STRING tag, INT value, INT n_dps, BOOL lz_sup) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF NUMERICDISPLAY nd): (update_numericdisplay(p, nd, value, n_dps, lz_sup))
+      OUT
+         put(stand error,(("set_numericdisplay(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+      ESAC
+   FI
+);
+
+# Set the contents of a numeric display to a REAL value. #
+PROC set_numericdisplay_real = (PIPE p, STRING tag, REAL rvalue, INT n_dps, BOOL lz_sup) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF NUMERICDISPLAY nd): (
+            put(stand error, ("*** n_dps = ",wint(n_dps)));
+            INT value := ROUND (10**n_dps * rvalue);
+            update_numericdisplay(p, nd, value, n_dps, lz_sup)
+         )
+      OUT
+         put(stand error,(("set_numericdisplay_real(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+      ESAC
+   FI
+);
+
+PROC set_numericdisplay_units = (PIPE p, STRING tag, STRING units) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF NUMERICDISPLAY nd): (
+            units OF nd := units;
+            update_numericdisplay(p, nd, value OF nd, n_dps OF nd, lz_sup OF nd)
+         )
+      OUT
+         put(stand error,(("set_numericdisplay_units(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+      ESAC
+   FI
+);
+
+# ---- #
+# KNOB #
+# ---- #
+
+# Read layout data for a knob from a texture atlas file. #
+PROC read_knob_metrics = (STRING talfile) VOID:
+(
+   [3]INT data := (0,0,0);
+   ( get_metric_info(talfile, "##knob", data) = 3 | knob_metrics := (data[1], data[2], data[3]) )
+); 
+
+# Make a knob. #
+PROC make_knob = (STRING tag, STRING label, USERPROC proc, INT x, y, INT angmin, angmax, REAL vmin, vmax, vnow) REF KNOB:
+(
+   REF KNOB new = HEAP KNOB;
+   new := (tag, label, proc, x, y, angmin, angmax, vmin, vmax, clamp_real(vnow, vmin, vmax), c OF dstate);
+   new
+);
+
+# Add a knob to the UI. #
+PROC add_knob = (STRING tag, STRING label, USERPROC proc, INT x, y, INT angmin, angmax, REAL vmin, vmax, vnow) VOID:
+(
+   (check_new_tag(tag) | add_component( make_knob(tag, label, proc, x, y, angmin, angmax, vmin, vmax, vnow) ))
+);
+
+# Put the drawing commands for a knob in the DSURF display list. #
+PROC instantiate_knob = (PIPE p, REF KNOB kb) VOID:
+(
+   push_dstate;
+   INT xc := (width OF knob_metrics % downscale OF knob_metrics) % 2;
+   INT yc := (height OF knob_metrics % downscale OF knob_metrics) % 2;
+   ds_set_colour_rgba_struct(p, c OF kb);
+   ds_sub_texture(p, "knob-plain", x OF kb, y OF kb, downscale OF knob_metrics, TRUE, 0, xc, yc);
+   ds_sense_rect(p, tag OF kb, "udaw", x OF kb, y OF kb, 
+                 width OF knob_metrics, height OF knob_metrics, 
+                 downscale OF knob_metrics, TRUE);
+   ds_text_in_font(p, label OF kb, x OF kb, y OF kb, TRUE, -(15 * yc) % 12);
+   pop_dstate
+);
+
+# Extract the angle parameter from a knob event string. Return TRUE if it is an A event.#
+PROC parse_event_knob = (STRING event, REF INT angle) BOOL:
+(
+   BOOL retval := FALSE;
+   IF event[1] = "A"
+   THEN
+      INT sep_pos := 0;
+      IF char in string(",", sep_pos, event)
+      THEN
+         angle := string_to_int(event[sep_pos+1:]);
+         retval := TRUE
+      FI
+   ELIF event[1] = "W"
+   THEN
+      INT sep_pos := 0;
+      IF char in string(",", sep_pos, event)
+      THEN
+         INT delta_angle := string_to_int(event[sep_pos+1:]);
+         angle +:= delta_angle;
+         retval := TRUE
+      FI
+   FI;
+   retval
+);
+
+# Convert an angle to a value mapping angmin->vmin and angmax->vmax. #
+PROC angle_to_value_knob = (REF KNOB kb, INT angle) REAL:
+(
+   REAL vnorm := (angle - angmin OF kb) / (angmax OF kb - angmin OF kb);
+   REAL value = vmin OF kb + vnorm * (vmax OF kb - vmin OF kb);
+   value
+);
+
+# Convert a value to an angle. #
+PROC value_to_angle_knob = (REF KNOB kb, REAL value) INT:
+(
+   REAL vnorm := (value - vmin OF kb) / (vmax OF kb - vmin OF kb);
+   REAL rangle := vnorm * (angmax OF kb - angmin OF kb) + angmin OF kb;
+   ROUND rangle
+);
+
+# Update the state and appearance of a knob. #
+PROC update_knob = (PIPE p, REF KNOB kb, STRING event) VOID:
+(
+   INT angle;
+   angle := value_to_angle_knob(kb, vnow OF kb);
+   IF parse_event_knob(event, angle)
+   THEN
+      push_dstate;
+      INT xc := (width OF knob_metrics % downscale OF knob_metrics) % 2;
+      INT yc := (height OF knob_metrics % downscale OF knob_metrics) % 2;
+      ds_set_colour_rgba_struct(p, c OF kb);
+      angle := clamp_int(angle, min2int(angmin OF kb, angmax OF kb), max2int(angmin OF kb, angmax OF kb));
+      vnow OF kb := angle_to_value_knob(kb, angle);
+      ds_remove_at(p, x OF kb, y OF kb);
+      ds_sub_texture(p, "knob-plain", x OF kb, y OF kb, downscale OF knob_metrics, TRUE, angle, xc, yc);
+      ds_text_in_font(p, label OF kb, x OF kb, y OF kb, TRUE, -(15 * yc) % 12);
+      ds_show_display(p);
+      pop_dstate
+   FI
+);
+
+# Set the state of a knob. Optionally call its USERPROC. #
+PROC set_knob = (PIPE p, STRING tag, REAL vnew, BOOL callproc) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF KNOB kb): (
+            INT angle := value_to_angle_knob(kb, vnew);
+            update_knob(p, kb, "A,"+wint(angle));
+            (callproc | VOID((proc OF kb) (tag, "A,"+wint(angle), components[i_component])))
+         )
+      OUT
+         put(stand error, (("set_knob(): Component [",tag,"] is not a KNOB.",newline)))
+      ESAC
+   FI
+);
+
+
+# -------- #
+# SELECTOR #
+# -------- #
+
+# Read layout data for a selector from a texture atlas file. #
+PROC read_selector_metrics = (STRING talfile) VOID:
+(
+   [3]INT data := (0,0,0);
+   ( get_metric_info(talfile, "##selector", data) = 3 | selector_metrics := (data[1], data[2], data[3]))
+); 
+
+# Make a selector switch. #
+PROC make_selector = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT which) REF SELECTOR:
+(
+   REF SELECTOR new = HEAP SELECTOR;
+   []STRING label_array = split_string(labels, ",");
+   INT n_choices = ELEMS label_array;
+   new := (tag, labels, proc, x, y, which, n_choices, c OF dstate);
+   new
+);
+
+# Add a selector switch to the UI. #
+PROC add_selector = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT which) VOID:
+(
+   (check_new_tag(tag) | add_component( make_selector(tag, labels, proc, x, y, which) ))
+);
+
+# Find the end point of a line from selector center to some radius at some angle. #
+PROC selector_line_end_points = (REF SELECTOR sb, INT radius, REAL c_theta, REF INT xi, yi) VOID:
+(
+   REAL x := x OF sb + radius * sin(c_theta + pi);
+   REAL y := y OF sb + radius * cos(c_theta + pi);
+   xi := ROUND x;
+   yi := ROUND y
+);
+
+# Calculate angles in radians needed to draw a selector switch. #
+# This is a bit "odd" as 0 is up and things need to be measured clockwise ... #
+PROC selector_angles = (REF SELECTOR sb, REF REAL d_theta, t_theta, c_theta) VOID:
+(
+   d_theta := 140.0 / (n_choices OF sb);        # Step angle between choices. #
+   ( d_theta > 33.0 | d_theta := 33.0 );
+   d_theta := DEGRAD d_theta;
+   t_theta := (n_choices OF sb - 1) * d_theta;  # Total angle around switch. #
+   c_theta := t_theta / 2                       # Center evenly about "up". # 
+);
+
+# Given a selector setting (choice), return an angle in degrees. #
+PROC selector_angle_from_choice = (REF SELECTOR sb, INT i_choice) INT:
+(
+   REAL d_theta, t_theta, c_theta, choice_angle;
+   selector_angles(sb, d_theta, t_theta, c_theta);
+   INT j_choice := clamp_int(i_choice, 1, n_choices OF sb);
+   choice_angle := c_theta - ((j_choice - 1) * d_theta);
+   ROUND (RADDEG choice_angle)
+);
+
+# Given an angle in degrees, return a selector setting (choice). #
+PROC selector_choice_from_angle = (REF SELECTOR sb, INT angle) INT:
+(
+   REAL d_theta, t_theta, c_theta, choice_angle;
+   selector_angles(sb, d_theta, t_theta, c_theta);
+   choice_angle := DEGRAD REAL(angle);
+   INT i_choice := ROUND ((c_theta - choice_angle) / d_theta) + 1;
+   clamp_int(i_choice, 1, n_choices OF sb)
+);
+
+# Parse a selector event. #
+PROC parse_event_selector = (STRING event, REF INT angle, INT dangle) BOOL:
+(
+   BOOL retval := FALSE;
+   IF event[1] = "A"
+   THEN
+      INT sep_pos := 0;
+      IF char in string(",", sep_pos, event)
+      THEN
+         angle := string_to_int(event[sep_pos+1:]);
+         retval := TRUE
+      FI
+   ELIF event[1] = "W"
+   THEN
+      INT sep_pos := 0;
+      IF char in string(",", sep_pos, event)
+      THEN
+         INT delta_angle := string_to_int(event[sep_pos+1:]);
+         angle +:= delta_angle * dangle;
+         retval := TRUE
+      FI
+   FI;
+   retval
+);
+
+# Put the drawing commands for a selector in the DSURF display list. #
+PROC instantiate_selector = (PIPE p, REF SELECTOR sb) VOID:
+(
+   push_dstate;
+   []STRING label_array = split_string(labels OF sb, ",");
+   INT xc := (width OF selector_metrics % downscale OF selector_metrics) % 2;
+   INT yc := (height OF selector_metrics % downscale OF selector_metrics) % 2;
+   INT radius := yc;
+   INT inner_radius := xc;
+   ds_set_colour_rgba_struct(p, c OF sb);
+   ds_sense_rect(p, tag OF sb, "udaw", x OF sb, y OF sb, 
+                 width OF selector_metrics, height OF selector_metrics, 
+                 downscale OF selector_metrics, TRUE);
+   REAL d_theta, t_theta, c_theta;
+   selector_angles(sb, d_theta, t_theta, c_theta);
+   FOR i TO n_choices OF sb
+   DO
+      INT x1, y1, x2, y2;
+      selector_line_end_points(sb, inner_radius+2, c_theta, x1, y1); 
+      selector_line_end_points(sb, radius+10, c_theta, x2, y2); 
+      ds_line(p, x1, y1, x2, y2);
+      selector_line_end_points(sb, radius+14, c_theta, x2, y2);
+      ds_text_in_font(p, label_array[i], x2, y2, TRUE, 0);
+      c_theta -:= d_theta
+   OD;
+   INT iangle := selector_angle_from_choice(sb, which OF sb);
+   ds_sub_texture(p, "knob-pointer", x OF sb, y OF sb, downscale OF selector_metrics, TRUE, iangle, xc, yc);
+   pop_dstate
+);
+
+# Update the state and appearance of a selector. #
+PROC update_selector = (PIPE p, REF SELECTOR sb, STRING event) VOID:
+(
+   INT angle;
+   REAL d_theta, t_theta, c_theta;
+   selector_angles(sb, d_theta, t_theta, c_theta);
+   angle := selector_angle_from_choice(sb, which OF sb);
+   IF parse_event_selector(event, angle, ROUND RADDEG d_theta)
+   THEN
+      push_dstate;
+      INT xc := (width OF selector_metrics % downscale OF selector_metrics) % 2;
+      INT yc := (height OF selector_metrics % downscale OF selector_metrics) % 2;
+      which OF sb := selector_choice_from_angle(sb, angle);
+      angle := selector_angle_from_choice(sb, which OF sb);
+      ds_set_colour_rgba_struct(p, c OF sb);
+      ds_remove_at(p, x OF sb, y OF sb);
+      ds_sub_texture(p, "knob-pointer", x OF sb, y OF sb, downscale OF selector_metrics, TRUE, angle, xc, yc);
+      ds_show_display(dsurf_pipe);
+      pop_dstate
+   FI
+);
+
+# Set the state of a selector. Optionally call its USERPROC. #
+PROC set_selector = (PIPE p, STRING tag, INT inew, BOOL callproc) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF SELECTOR sb): (
+            INT angle := selector_angle_from_choice(sb, inew);
+            update_selector(p, sb, "A,"+wint(angle));
+            (callproc | VOID((proc OF sb) (tag, "A,"+wint(angle), components[i_component])))
+         )
+      OUT
+         put(stand error, (("set_selector(): Component [",tag,"] is not a SELECTOR.",newline)))
+      ESAC
+   FI
+);
+
+# ------ #
+# KEYPAD #
+# ------ #
+
+# Read layout data for a keypad from a texture atlas file. $$$ #
+PROC read_keypad_metrics = (STRING talfile) VOID:
+(
+   [3]INT data := (0,0,0);
+   ( get_metric_info(talfile, "##keypad", data) = 3 | keypad_metrics := (data[1], data[2], data[3]))
+); 
+
+# Make a keypad. #
+PROC make_keypad = (STRING tag, USERPROC proc, INT x, y, STRING ndtag) REF KEYPAD:
+(
+   REF KEYPAD new = HEAP KEYPAD;
+   new := (tag, proc, x, y, 0, 1, -1, ndtag, 0, 1, -1, c OF dstate); # ivalue, isign, idp #
+   new
+);
+
+# Add a keypad to the UI. #
+PROC add_keypad = (STRING tag, USERPROC proc, INT x, y, STRING ndtag) VOID:
+(
+   (check_new_tag(tag) | add_component( make_keypad(tag, proc, x, y, ndtag) ))
+);
+
+# Put the drawing commands for a keypad in the DSURF display list. #
+PROC instantiate_keypad = (PIPE p, REF KEYPAD kp) VOID:
+(
+   push_dstate;
+   []STRING label_array = ("7","8","9","SET", "4","5","6","OLD", "1","2","3","DEL", ".","0","CHS","NEW");
+   INT button_height := (height OF keypad_metrics) % (downscale OF keypad_metrics);
+   INT button_width := (width OF keypad_metrics) % (downscale OF keypad_metrics);
+   put(stand error, ("button w/h = ",button_width,button_height,newline));
+   INT array_width := 4 * button_width;
+   INT array_height := 4 * button_height;
+   INT xc := (x OF kp) - array_width % 2;
+   INT yc := (y OF kp) - array_height % 2;
+
+   ds_set_colour_rgba(p, 0, 0, 0, 255); # Need black digits. #
+
+   FOR i TO 4
+   DO
+      INT xp := xc - (array_width % 2) + (i - 1) * button_width;
+      FOR j TO 4
+      DO
+         INT ij := (i - 1) + 4 * (j - 1) + 1;
+         INT yp := yc - (array_height % 2) + (j - 1) * button_height;
+         ds_sub_texture(p, "num-button", xp, yp, 
+                        downscale OF keypad_metrics, TRUE, 0, 0, 0);
+         STRING sub_tag := tag OF kp + "_" + wint(ij);
+         ds_sense_rect(p, sub_tag, "ud", xp, yp, width OF keypad_metrics, 
+                       height OF keypad_metrics, downscale OF keypad_metrics, TRUE);
+         ds_text_in_font(p, label_array[ij], xp, yp, TRUE, 0)
+      OD
+   OD;
+   pop_dstate
+);
+
+# Get value held by a keypad as a real number. #
+PROC get_keypad = (PIPE p, STRING tag) REAL:
+(
+   REAL value := 0.0;
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF KEYPAD kp): (
+            value := get_keypad_internal(kp)
+         )
+      OUT
+         put(stand error, (("get_keypad(): Component [",tag,"] is not a KEYPAD.",newline)))
+      ESAC
+   FI;
+   value
+);
+
+PROC get_keypad_internal = (REF KEYPAD kp) REAL:
+(
+   REAL(isign OF kp * ivalue OF kp) / (10 ** max2int(0, idp OF kp))
+);
+
+# Save and restore the current keypad value. #
+PROC save_keypad = (REF KEYPAD kp) VOID:
+(
+   old_ivalue OF kp := ivalue OF kp;
+   old_idp OF kp := idp OF kp;
+   old_isign OF kp := isign OF kp
+);
+
+PROC restore_keypad = (REF KEYPAD kp) VOID:
+(
+   ivalue OF kp := old_ivalue OF kp;
+   idp OF kp := old_idp OF kp;
+   isign OF kp := old_isign OF kp
+);
+
+# Update the state and appearance of a keypad. #
+PROC update_keypad = (PIPE p, REF KEYPAD kp, STRING event, STRING sub_tag) VOID:
+(
+   # Special keys. #
+   INT decimal_key = -1, negate_key = -2, set_key = -3, old_key = -4, del_key = -5;
+   INT new_key = -6;
+
+   push_dstate;
+   []INT key_to_int = (7,8,9,set_key, 4,5,6,old_key, 1,2,3,del_key, decimal_key,0,negate_key,new_key);
+
+   IF event[1] = "D"
+   THEN
+      # Find which of the keypad buttons has been pressed. #
+      INT new_digit = key_to_int( string_to_int(sub_tag) );
+      put(stand error, ("sub_tag = ",sub_tag," digit = ",wint(new_digit),newline));
+      IF new_digit >= 0
+      THEN
+         (ivalue OF kp < (max int % 10) | ivalue OF kp := 10 * ivalue OF kp + new_digit);
+         (idp OF kp >= 0 | idp OF kp +:= 1)
+      ELSE
+         ((new_digit = decimal_key) AND (idp OF kp < 0) | idp OF kp := 0);
+         (new_digit = negate_key | isign OF kp *:= -1);
+         (new_digit = new_key | save_keypad(kp); idp OF kp := -1; ivalue OF kp := 0; isign OF kp := 1);
+         (new_digit = del_key | ivalue OF kp %:= 10; idp OF kp -:= 1; (idp OF kp <= 0 | idp OF kp := -1));
+         (new_digit = old_key | restore_keypad(kp));
+         (new_digit = set_key | save_keypad(kp))
+      FI;
+      put(stand error, ("*** value = ", get_keypad_internal(kp), newline));
+      (ndtag OF kp /= "" | set_numericdisplay_real(p, ndtag OF kp, 
+                                                   get_keypad_internal(kp), max2int(0, idp OF kp), TRUE);
+                           ds_show_display(p))
+   FI;
+   pop_dstate
+);
+
+# Set the state of a keypad. Optionally call its USERPROC. #
+PROC set_keypad = (PIPE p, STRING tag, REAL value, INT ndp, BOOL callproc) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF KEYPAD kp): (
+            isign OF kp := (value < 0 | -1 | 1 );
+            ivalue OF kp := ROUND (ABS value * (10 ** max2int(0, ndp)));
+            idp OF kp := (ndp = 0 | -1 | ndp);
+            (ndtag OF kp /= "" | set_numericdisplay_real(p, ndtag OF kp, 
+                                                         get_keypad_internal(kp), max2int(0, idp OF kp), TRUE);
+                                 ds_show_display(p));
+            (callproc | VOID((proc OF kp) (tag, "D,0", components[i_component])))
+         )
+      OUT
+         put(stand error, (("set_keypad(): Component [",tag,"] is not a KEYPAD.",newline)))
+      ESAC
+   FI
+);
+
+# Get texture metric information for texture key from a texture atlas file from_file. #
+PROC get_metric_info = ( STRING from_file, STRING key, REF []INT values ) INT:
+(
+   INT n_items := 0;
+   BOOL eof := FALSE;
+   PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
+   FOR i TO ELEMS values DO values[i] := 0 OD;
+   FILE fin;
+   IF open(fin, from_file, stand in channel) /= 0
+   THEN
+      put(stand error, (("Failed to open: ",from_file," for read.",new line)))
+   ELSE
+      STRING input_line;
+      on file end(fin, at_eof);
+      DO
+         get(fin, (input_line, new line)); (eof | file_end);
+         IF ((ELEMS input_line > 2) | (input_line[1:2] = "##") | FALSE)
+         THEN
+            []STRING words = split_string(input_line, " ");
+            IF trim(words[1]) = key
+            THEN
+               n_items := min2int(ELEMS words - 1, ELEMS values);
+               FOR i FROM 1 TO n_items   
+               DO
+                  values[i] := string_to_int(words[i+1])
+               OD;
+               file_end
+            FI
+         FI
+      OD;
+      file_end:
+      close(fin)
+   FI;
+   n_items
+);
+
+# ============ #
+# UI Internals #
+# ============ #
+
+# Read component metrics from a texture atlas file. #
+PROC read_component_metrics = (STRING talfile) VOID:
+(
+   read_pushbutton_metrics(talfile);
+   read_togglebutton_metrics(talfile);
+   read_radiobutton_metrics(talfile);
+   read_numericdisplay_metrics(talfile);
+   read_knob_metrics(talfile);
+   read_selector_metrics(talfile);
+   read_keypad_metrics(talfile)
+);
+
+# Instantiate all defined components (put drawing cmds in DSURF display list). #
+PROC instantiate = (PIPE p) VOID:
+(
+   FOR i TO ELEMS components
+   DO
+      CASE components[i]
+      IN
+         (REF PUSHBUTTON pb): instantiate_pushbutton(p, pb),
+         (REF TOGGLEBUTTON tb): instantiate_togglebutton(p, tb),
+         (REF RADIOBUTTON rb): instantiate_radiobutton(p, rb),
+         (REF NUMERICDISPLAY nd): instantiate_numericdisplay(p, nd),
+         (REF KNOB kb): instantiate_knob(p, kb),
+         (REF SELECTOR sb): instantiate_selector(p, sb),
+         (REF KEYPAD kp): instantiate_keypad(p, kp)
+      ESAC
+   OD;
+
+   # Switch to using the overlay list. Show the display. #
+   ds_use_overlay(p);
+   ds_show_display(p)
+);
+
+# Update the appearance and state of a component. #
+PROC update_component = (PIPE p, ANYBUTTONREF component, STRING event, STRING sub_tag) VOID:
+(
+   CASE component
+   IN
+      (REF PUSHBUTTON pb): update_pushbutton(p, pb, event),
+      (REF TOGGLEBUTTON tb): update_togglebutton(p, tb, event),
+      (REF RADIOBUTTON rb): update_radiobutton(p, rb, event, sub_tag),
+      (REF KNOB kb): update_knob(p, kb, event),
+      (REF SELECTOR sb): update_selector(p, sb, event),
+      (REF KEYPAD kp): update_keypad(p, kp, event, sub_tag)
+   ESAC
+);
+
+#  Find the index of a component given its tag and also return its USERPROC. #
+PROC find_component = (STRING tag, REF USERPROC this_proc) INT:
+(
+   STRING this_tag := "";
+   INT return_value := 0; # 0 => not found. #
+   this_proc := null_proc;
+
+   # Simple linear search for now. Replace with an associative array one day. #
+   FOR i_component TO ELEMS components
+   DO
+      CASE components[i_component]
+      IN
+         (REF PUSHBUTTON pb): (this_tag := tag OF pb; this_proc := proc OF pb),
+         (REF TOGGLEBUTTON tb): (this_tag := tag OF tb; this_proc := proc OF tb),
+         (REF RADIOBUTTON rb): (this_tag := tag OF rb; this_proc := proc OF rb),
+         (REF NUMERICDISPLAY nd): (this_tag := tag OF nd; this_proc := null_proc),
+         (REF KNOB kb): (this_tag := tag OF kb; this_proc := proc OF kb),
+         (REF SELECTOR sb): (this_tag := tag OF sb; this_proc := proc OF sb),
+         (REF KEYPAD kp): (this_tag := tag OF kp; this_proc := proc OF kp)
+      ESAC;
+
+      # If the sought component, return the index of the component and this_proc for that. #
+      IF tag = this_tag
+      THEN
+         return_value := i_component;
+         end_search
+      FI
+   OD;
+   end_search:
+   return_value
+);
+
+# Return TRUE if tag hasn't been used yet. #
+PROC check_new_tag = (STRING tag) BOOL:
+(
+   USERPROC someproc;
+   INT i_component := find_component(tag, someproc);
+   BOOL return_value := TRUE;
+   IF (i_component /= 0)
+   THEN
+      put(stand error, ("WARNING: Tag [",tag,"] has already been defined. \
+ Component not added (add call ",wint(i_component),").",new line));
+      return_value := FALSE
+   FI;
+   return_value
+);
+
+# Return 0 if tag hasn't been used or its index in the components array otherwise. #
+PROC check_old_tag = (STRING tag) INT:
+(
+   USERPROC someproc;
+   INT i_component := find_component(tag, someproc);
+   ((i_component = 0) | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)));
+   i_component
+);
+
+# Run the event loop. #
+PROC run_event_loop = (PIPE p) VOID:
+(
+   # Loop forever. Get the button tag and event type when something happens. #
+   DO
+      INT sep_pos := 0;
+      STRING str_event := read_dsurf(p);
+      IF char in string(",", sep_pos, str_event)
+      THEN
+         STRING tag := str_event[:sep_pos-1];
+         STRING event := str_event[sep_pos+1:];
+         STRING sub_tag := "";
+         (char in string("_", sep_pos, tag) | sub_tag := tag[sep_pos+1:]; tag := tag[:sep_pos-1]);
+
+         # Find the component clicked from the tag in the event data. #
+         USERPROC this_proc;
+         INT i_component := find_component(tag, this_proc);
+         IF i_component /= 0
+         THEN
+            # Update the appearance of the component. Call its USERPROC, exit loop if that returns TRUE. #
+            update_component(p, components[i_component], event, sub_tag);
+            BOOL stop_now := (this_proc) (tag, event, components[i_component]);
+            (stop_now | end_event_loop)
+         FI
+      FI
+   OD;
+   end_event_loop:
+   SKIP
+);
+

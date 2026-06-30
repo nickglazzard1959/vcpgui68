@@ -1,0 +1,40 @@
+# Texture atlas for DSURF.
+#
+##pushbutton 100 64 2
+##togglebutton 100 64 2
+##radiobutton 100 64 2
+##numericdisplay 256 341 5 5
+##knob 150 150 2
+##selector 150 200 2
+##keypad 65 64 2
+#
+dsurf.png
+#
+eight 0 0 256 341
+nine 256 0 256 341
+colon 512 0 128 341
+point 512 0 128 170
+#
+four 0 341 256 341
+five 256 341 256 341
+six 512 341 256 341
+seven 768 341 256 341
+#
+zero 0 682 256 341
+one 256 682 256 341
+two 512 682 256 341
+three 768 682 256 341
+#
+off 1024 682 256 341
+minus 1024 341 256 341
+#
+button 670 259 100 64
+button-off 670 189 100 64
+button-on 670 119 100 64
+num-button 670 49 65 64
+#
+knob-pointer 1014 23 150 200
+knob-plain 850 23 150 150
+#
+blank 1280 341 256 341
+plus 1280 682 256 341

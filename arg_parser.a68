@@ -1,0 +1,231 @@
+COMMENT
+arg_parser.a68 - A command line argument parser.
+================================================
+
+This is go at a command line argument parser for Algol 68
+along the lines of Python's argparse or the CLI11 header only library
+for C++. It isn't "feature rich", but it does the essentials quite
+cleanly, IMO.
+
+An argument parser "instance" is created with make_arg_parser().
+Options are added with arg_add_MODE_option() which defines an option
+(which always has a value immediately following it), sets its default
+value and returns a variable of mode MODE set to the default. Allowed
+MODEs are currently string and int.
+Flags (which control boolean values by being present or not) are
+added with arg_add_flag().
+The parse_args() routine sets the variables to values specified on
+the command line, as well as detecting errors and outputtiong help.
+The variables can then be used to control the behaviour of the program.
+
+Usage example:
+REF ARG_PARSE arg_parser := make_arg_parser("Test VP and DSURF");
+arg_set_description(arg_parser,
+"This is a longer description of this test program.\n\
+It should be able to span several lines.\n\
+Hopefully.");
+REF INT ival := arg_add_int_option(arg_parser, "-i", "--intval", "Integer", 999);
+REF STRING sval := arg_add_string_option(arg_parser, "-s", "--strval", "String", "Nuts");
+REF STRING sval2 := arg_add_string_option(arg_parser, "-t", "--strval2", "Another string", "More nuts");
+REF BOOL bflag := arg_add_flag(arg_parser, "-f", "--flagval", "Flag", FALSE);
+( NOT parse_args(arg_parser) | put(stand error, ("Unknown or malformed command line arguments.", newline)); stop );
+
+print(("ival = ",ival,new line));
+print(("sval = ",sval,new line));
+print(("sval2 = ",sval2,new line));
+print(("bval = ",bflag,new line));
+
+Nick Glazzard 2026.
+-------------------
+COMMENT
+
+PR read "utility.a68" PR
+
+MODE ARG_VALUE = UNION(REF STRING, REF INT, REF BOOL);
+MODE ARG_OPTION = STRUCT(STRING short, STRING long, REF ARG_VALUE avalue, BOOL is_flag, STRING desc);
+MODE ARG_PARSE = STRUCT(FLEX [1:0] REF ARG_OPTION options, STRING app_desc, STRING long_desc);
+
+# Make an argument parser. #
+PROC make_arg_parser = (STRING app_desc) REF ARG_PARSE:
+(
+   REF ARG_PARSE new = HEAP ARG_PARSE;
+   app_desc OF new := app_desc;
+   long_desc OF new := "";
+   new
+);
+
+# Add a longer description of the program. #
+PROC arg_set_description = (REF ARG_PARSE arg_parser, STRING long_desc) VOID:
+(
+   long_desc OF arg_parser := long_desc
+);
+
+# Internal function. #
+PROC arg_add_any_option = (REF ARG_PARSE arg_parser, REF ARG_OPTION new) VOID:
+(
+   [UPB (options OF arg_parser) + 1] REF ARG_OPTION temp;
+   temp[: UPB (options OF arg_parser)] := options OF arg_parser;
+   options OF arg_parser := temp;
+   (options OF arg_parser)[UPB (options OF arg_parser)] := new
+);
+
+# Add an option for an integer argument. E.g. -i, --intopt, "An integer option", 999 #
+PROC arg_add_int_option = (REF ARG_PARSE arg_parser, STRING short, STRING long, STRING desc, 
+                           INT uvalue) REF INT:
+(
+   REF ARG_OPTION new_option = HEAP ARG_OPTION;
+   REF ARG_VALUE new_value = HEAP ARG_VALUE;
+   REF INT value = HEAP INT := uvalue;
+   CO REF INT(value) := uvalue; Cast example. CO
+   new_value := value;
+   new_option := (short, long, new_value, FALSE, desc);
+   arg_add_any_option(arg_parser, new_option);
+   value
+);
+
+# Add an option with a string argument. E.g. -s, --stringopt, "A string option", "Default" #
+PROC arg_add_string_option = (REF ARG_PARSE arg_parser, STRING short, STRING long, STRING desc, 
+                              STRING uvalue) REF STRING:
+(
+   REF ARG_OPTION new_option = HEAP ARG_OPTION;
+   REF ARG_VALUE new_value = HEAP ARG_VALUE;
+   REF STRING value = HEAP STRING := uvalue;
+   new_value := value;
+   new_option := (short, long, new_value, FALSE, desc);
+   arg_add_any_option(arg_parser, new_option);
+   value
+);
+
+# Add a flag, which has no argument.Sets a BOOL variable. E.g. -f, --flag, "A flag", TRUE #
+PROC arg_add_flag = (REF ARG_PARSE arg_parser, STRING short, STRING long, STRING desc, 
+                     BOOL uvalue) REF BOOL:
+(
+   REF ARG_OPTION new_option = HEAP ARG_OPTION;
+   REF ARG_VALUE new_value = HEAP ARG_VALUE;
+   REF BOOL value = HEAP BOOL := uvalue;
+   new_value := value;
+   new_option := (short, long, new_value, TRUE, desc);
+   arg_add_any_option(arg_parser, new_option);
+   value
+);
+
+# Parse user supplied command line args and update the variables they are associated with. #
+PROC parse_args = (REF ARG_PARSE arg_parser) BOOL:
+(
+   # Add a help option always. #
+   REF BOOL do_help := arg_add_flag(arg_parser, "-h", "--help", "Display help and exit.", FALSE);
+
+   # OK so far. #
+   BOOL ok := TRUE;
+
+   # Arguments for the program begin after -- (earlier ones are for a68g). #
+   INT cur_arg := argc + 1;
+   FOR i TO argc
+   DO
+      (argv(i) = "--" | (i < argc | cur_arg := i + 1; found_args))
+   OD;
+   found_args:
+
+   # Step over the supplied arguments intended for the program. #
+   WHILE cur_arg <= argc
+   DO
+      STRING opt_name := argv(cur_arg);
+
+      # See if the option has been defined. #
+      BOOL matched := FALSE;
+      FOR i TO ELEMS (options OF arg_parser)
+      DO
+         IF (opt_name = (short OF (options OF arg_parser)[i])) OR 
+            (opt_name = (long OF (options OF arg_parser)[i]))
+         THEN
+            # Get the argument of int and string options, checking it exists. #
+            CASE (avalue OF (options OF arg_parser)[i])
+            IN
+               (REF INT ivalue): ( matched := TRUE;
+                                   (cur_arg = argc | put(stand error, ("Missing argument for ",opt_name,newline)); 
+                                                     ok := FALSE; fail);
+                                   cur_arg +:= 1;
+                                   ivalue := string_to_int(argv(cur_arg))
+                                 ),
+               (REF STRING svalue): ( matched := TRUE;
+                                      (cur_arg = argc | put(stand error, ("Missing argument for ",opt_name,newline)); 
+                                                        ok := FALSE; fail);
+                                      cur_arg +:= 1;
+                                      svalue := argv(cur_arg)
+                                    ), 
+               (REF BOOL bvalue): ( matched := TRUE; 
+                                    bvalue := NOT bvalue
+                                  )
+            OUT
+               SKIP
+            ESAC
+         FI
+      OD; # search over defined options. #
+
+      # An option was supplied that is unknown. Give up. #
+      (NOT matched | put(stand error, ("Unknown argument ",opt_name,newline)); 
+                     ok := FALSE; fail);
+
+      # Move to the next input argument. #
+      cur_arg +:= 1
+   OD; # loop over supplied arguments. #
+
+   # If help has been requested, output it and exit. #
+   IF do_help
+   THEN
+      print((newline, app_desc OF arg_parser, newline, (ELEMS app_desc OF arg_parser * "-"), newline));
+
+      IF long_desc OF arg_parser /= ""
+      THEN
+         print((new line));
+         STRING out_string := long_desc OF arg_parser;
+         INT newline_pos := 1;
+         WHILE string in string("\n", newline_pos, out_string)
+         DO
+            print((out_string[:newline_pos-1], new line));
+            out_string := out_string[newline_pos+2:]
+         OD;
+         (ELEMS out_string > 1 | print((out_string, new line)));
+         print((new line))
+      FI;
+
+      FOR i TO ELEMS (options OF arg_parser)
+      DO
+         print(((short OF (options OF arg_parser)[i]),", "));
+         print(((long OF (options OF arg_parser)[i]),", "));
+         print((((is_flag OF (options OF arg_parser)[i]) | "(flag)" | "(option)")," : "));
+         print(((desc OF (options OF arg_parser)[i])));
+         print((newline))
+      OD;
+      print((newline));
+      stop
+   FI;
+
+   # Return with status. #
+   fail:
+   ok
+);
+
+# ------ #
+# TESTS. #
+# ------ #
+
+IF FALSE
+THEN
+
+REF ARG_PARSE arg_parser := make_arg_parser("Test VP and DSURF");
+arg_set_description(arg_parser,
+"This is a longer description of this test program.\n\
+It should be able to span several lines.\n\
+Hopefully.");
+REF INT ival := arg_add_int_option(arg_parser, "-i", "--intval", "Integer", 999);
+REF STRING sval := arg_add_string_option(arg_parser, "-s", "--strval", "String", "Nuts");
+REF STRING sval2 := arg_add_string_option(arg_parser, "-t", "--strval2", "Another string", "More nuts");
+REF BOOL bflag := arg_add_flag(arg_parser, "-f", "--flagval", "Flag", FALSE);
+( NOT parse_args(arg_parser) | put(stand error, ("Unknown or malformed command line arguments.", newline)); stop );
+
+print(("ival = ",ival,new line));
+print(("sval = ",sval,new line));
+print(("sval2 = ",sval2,new line));
+print(("bval = ",bflag,new line))
+FI;
