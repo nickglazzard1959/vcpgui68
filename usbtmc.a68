@@ -1,0 +1,190 @@
+COMMENT
+usbtmc.a68 - Perform basic i/o to a USBTMC device on Linux (for instrument control).
+====================================================================================
+
+This handles writing and reading strings to/from /dev/usbtmc<n> which should be
+created when instruments that support USBTMC are plugged in to a Linux computer.
+Note that either USB 'udev' rules must be defined to set permissions automatically
+when specific devices are plugged in OR sudo chmod 666 /dev/usbtmc<n> should be
+used after the device has been plugged in and before this software is used.
+
+Although short, getting this to work took a couple of days! It is very basic in
+some ways, but maybe less is more. I can see no way to handle binary i/o in a68g
+(I tried some things, but to no avail), so only 'ASCII' strings can be transferred.
+This fine for *almost* everything.
+
+Also, trying to detect certain error conditions (using 'events') did not work as
+expected, so if something goes wrong, the default action (exit, usually) will be
+taken.
+
+Note that the need to read 1 character at a time in get_usbtmc() is NOT due to
+any a68g restriction ... exactly the same thing was needed in a C++ test program
+to get it to work correctly.
+
+Nick Glazzard 2026
+------------------
+COMMENT
+
+PR read "utility.a68" PR
+
+MODE USBTMC = STRUCT( BOOL valid, INT dev_no, FILE fin, FILE fout );
+
+# Relevant errno values. #
+INT earg = 22;
+
+# Try to catch and diagose transput errors. #
+INT g_transput_errno := 0;
+PROC transput_error_action = (REF FILE f) BOOL:
+(
+   g_transput_errno := errno; # Record errno. #
+   put(stand error, ("Error in transput on file: ", idf(f), new line));
+   TRUE                       # Try to continue. #
+);
+
+# Diagnose and VOID status values returned from usbtmc functions. #
+PROC check_usbtmc = (INT status) VOID:
+(
+   IF status /= 0
+   THEN
+      put(stand error, ("USBTMC error detected: ", strerror(status), new line))
+   FI
+);
+
+# Open /dev/usbtmc<dev_no>, a character device. Use separate read and write files. #
+PROC open_usbtmc = (INT dev_no) REF USBTMC:
+(
+   REF USBTMC conn = HEAP USBTMC;
+   valid OF conn := FALSE;
+   STRING dev_name := "/dev/usbtmc" + whole(dev_no,0);
+   CO print((dev_name, newline)); CO
+   dev_no OF conn := dev_no;
+
+   # Note that many errors (e.g. permissions) are NOT found until the first #
+   # put() or get(). It seems the file is only really opened when it is first used. #
+   # Try some sanity checking before trying to open the device. #    
+   BITS full_mode := file mode(dev_name);
+   IF full_mode = 2r0 
+   THEN 
+      put(stand error, ("Device file: ", dev_name," does not exist. Is device plugged in?", 
+                        new line));
+      done
+   FI;
+
+   BITS permissions := full_mode AND 8r777;
+   IF permissions /= 8r666
+   THEN
+      put(stand error, ("Device file: ", dev_name," does not have 0666 permissions. \
+Check UDEV rules or sudo chmod 666 it.", new line));
+      done
+   FI;
+
+   # Open the device file. #
+   INT status := open_chardev(dev_name, "r", fin OF conn);
+   IF status /= 0
+   THEN
+      put(stand error, ("Failed to open: ", dev_name," for read. Reason: ", 
+                        strerror(status), new line));
+      done
+   FI;
+
+   status := open_chardev(dev_name, "w", fout OF conn);
+   IF status /= 0
+   THEN
+      put(stand error, ("Failed to open: ", dev_name," for write. Reason: ", 
+                        strerror(status), new line));
+      close(fin OF conn);
+      done
+   FI;
+
+   # Establish the transput error event handler on both files. #
+   on transput error(fin OF conn, transput_error_action);
+   on transput error(fout OF conn, transput_error_action);
+
+   # Everything worked. Mark device structure as valid. #
+   valid OF conn := TRUE;
+   done:
+   conn
+);
+
+# Close a USBTMC device connection. #
+PROC close_usbtmc = (REF USBTMC device) INT:
+(
+   INT retval := g_transput_errno := 0;
+   (NOT valid OF device | retval := earg; done);
+   close(fin OF device);
+   close(fout OF device);
+   retval := g_transput_errno;
+   valid OF device := FALSE;
+   done:
+   retval  
+);
+
+# Send a string to a USBTMC device. No new line should be sent! #
+PROC put_usbtmc = (REF USBTMC device, STRING s) INT:
+(
+   INT retval := g_transput_errno := 0;
+   (NOT valid OF device | retval := earg; done);
+   put(fout OF device, (s));
+   retval := g_transput_errno;
+   done:
+   retval
+);
+
+# Read a string from a USBTMC device. This must be done 1 character at a time. #
+PROC get_usbtmc = (REF USBTMC device, REF STRING s) INT:
+(
+   INT retval := g_transput_errno := 0;
+   (NOT valid OF device | retval := earg; done);
+
+   # Loop, accumulating characters until end of line is reached.  #
+   # DO NOT USE 'on line end' event! . This will only be called AFTER the first #
+   # character of the NEXT LINE has been read! Use 'end of line()' instead! #
+   s := "";
+   CHAR in1;
+   DO
+      get(fin OF device, (in1)); # Gets character, sets EOL if last on line. #
+      retval := g_transput_errno;
+      (retval /= 0 | done);
+      s +:= in1;                 # Always add the character. #
+      (end of line(fin OF device) | done)
+   OD;
+   done:
+   retval
+);
+
+# Send a string to a USBTMC device and get a response string. #
+PROC query_usbtmc = (REF USBTMC device, STRING send, REF STRING result) INT:
+(
+   INT status := put_usbtmc(device, send);
+   (status /= 0 | done);
+   status := get_usbtmc(device, result);
+   (status /= 0 | done);
+   done:
+   status
+);
+
+# ------ #
+# TESTS. #
+# ------ #
+
+IF FALSE
+THEN
+REF USBTMC device := open_usbtmc(2);
+(NOT valid OF device | print(("Failed.",newline)); stop);
+
+VOID(put_usbtmc(device, "*IDN?"));
+
+STRING result;
+check_usbtmc(get_usbtmc(device, result));
+print(("[", result, "]", newline));
+
+result := "";
+FOR i TO 20
+DO
+  check_usbtmc(query_usbtmc(device, ":MEAS:VOLT:DC?", result));
+  print(("[", result, "]", newline))
+OD;
+
+check_usbtmc(close_usbtmc(device))
+FI;
+

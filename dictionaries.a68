@@ -735,7 +735,7 @@ FOR i TO ELEMS all_items
 DO
    INT j := permuted[i];
    deleted_item := new_list DEL (new_list INDEX all_items[j]);
-   print(("... Deleted string: ",deleted_item,newline));
+   print(("... Deleted string: ",deleted_item,newline))
 OD;
 
 print(("Remaining items: ",ELEMS new_list,newline));

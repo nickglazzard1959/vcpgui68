@@ -87,6 +87,38 @@ PROC trim = (STRING s) STRING:
    trim_leading( trim_trailing(s) )
 );
 
+# Change the case of a string. #
+PROC string_to_lower = (STRING s) STRING:
+(
+   STRING return := "";
+   FOR i TO ELEMS s
+   DO
+      return +:= to lower(s[i])
+   OD;
+   return
+);
+
+PROC string_to_upper = (STRING s) STRING:
+(
+   STRING return := "";
+   FOR i TO ELEMS s
+   DO
+      return +:= to upper(s[i])
+   OD;
+   return
+);
+
+# Remove space characters from a string. #
+PROC despace = (STRING s) STRING:
+(
+   STRING return := "";
+   FOR i TO ELEMS s
+   DO
+      (NOT is space(s[i]) | return +:= s[i])
+   OD;
+   return 
+);
+
 # Check v is in the range lo to hi inclusive. #
 PROC check_in_range_int = (INT v, lo, hi) BOOL:
 (
@@ -187,7 +219,135 @@ PROC ifromc = (STRING s, REF INT v, INT b, REF INT p) BOOL:
 );
 
 # String to real. If use_all_s, return status will be FALSE unless s has no trailing non-float chars. #
+# Otherwise, return staus will be TRUE if s is a valid representation of a floating point number.  #
 PROC string_to_real = (STRING s, REF REAL v, BOOL use_all_s) BOOL:
+(
+   INT p := 1; # Start at the first character of s. #
+   string_to_real_internal(s, v, use_all_s, p, TRUE)
+);
+
+# String to real, accounting for standard SI metric prefixes. #
+# They should follow the number, maybe after a space. #
+PROC si_string_to_real = (STRING s, REF REAL v, REF STRING units) BOOL:
+(
+   v := 0.0;
+   units := "";
+
+   INT iexp := 0;
+   BOOL retval := FALSE;
+
+   # Define known prefix codes and associated powers of 10. #
+   MODE PREFIX_EXP = STRUCT(STRING prefix, INT exp);
+   []PREFIX_EXP pe_table = (("Q", 30),("R", 27),("Y", 24),("Z", 21),("E", 18),
+                            ("P", 15),("T", 12),("G",  9),("M",  6),("k",  3),
+                            ("h",  2),("da", 1),("d", -1),("c", -2),("m", -3),
+                            ("u", -6),("n", -9),("p",-12),("f",-15),("a",-18),
+                            ("z",-21),("y",-24),("r",-27),("q",-30));
+
+   # Get a REAL value from a version of s with all white space removed. #
+   REAL no_prefix_v := 0.0;
+   STRING despaced_s := despace(s);
+   INT p := 1; # Start at the first character of s. #
+   (NOT string_to_real_internal(despaced_s, no_prefix_v, FALSE, p, FALSE) | done);
+
+   # If p is at the last character in s, we are done. #
+   IF p /= ELEMS despaced_s
+   THEN
+      INT prefix_length := 0;
+
+      # See if s[p+1:] is a valid 'metric prefix' #
+      FOR i TO ELEMS pe_table
+      DO
+         (begins_with(despaced_s[p:], prefix OF pe_table[i]) | 
+                iexp := exp OF pe_table[i]; 
+                retval := TRUE; 
+                prefix_length := ELEMS (prefix OF pe_table[i]);
+                break_a)
+      OD;
+      break_a:
+
+      # Are there also units? If so, extract them. #
+      IF retval
+      THEN
+         p +:= prefix_length;
+         (p <= ELEMS despaced_s | units := despaced_s[p:])
+      FI
+   ELSE
+      retval := TRUE # Numbers with no prefix are still valid. #
+   FI;
+
+   # Scale the no prefix value. #
+   v := no_prefix_v * (10.0 ** iexp);
+   
+   done:
+   retval
+);
+
+# Real to string, adding standard SI metric prefixes. #
+# Full width of string is width with after decimal places. #
+# If do_small, use prefixes for numbers between 0.001 and 1000 (c, d, da, h). #
+# Otherwise, only use multiples of 1000 (k, M, G, etc.) for all numbers. #
+PROC real_to_si_string = (REAL v, REF STRING s, INT width, after, BOOL do_small) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # If |v| is > 10**33 or < 10**-33, just convert. No defined prefixes for these. #
+   (ABS(v) > 1.0E33 OR ABS(v) < 1.0E-33 | s := fixed(v, width, after); done);
+
+   # Define known prefix codes and associated powers of 10. #
+   MODE PREFIX_EXP = STRUCT(STRING prefix, INT exp);
+   []PREFIX_EXP pe_table = (("Q", 30),("R", 27),("Y", 24),("Z", 21),("E", 18),
+                            ("P", 15),("T", 12),("G",  9),("M",  6),("k",  3),
+                            ("m", -3),("u", -6),("n", -9),("p",-12),("f",-15),
+                            ("a",-18),("z",-21),("y",-24),("r",-27),("q",-30));
+
+   []PREFIX_EXP sm_table = (("h",  2),("da", 1),("",   0),("d", -1),("c", -2));
+
+   # If |v| is between 1/1000 and 1000, perhaps no prefix is required. #
+   REAL v_div := 0.0;
+   STRING prefix := "";
+   IF ABS(v) < 1000.0 AND ABS(v) > 0.001
+   THEN
+      IF do_small
+      THEN
+         # Prefix required for small numbers (using multiples of 10). Find it. #
+         FOR i TO ELEMS sm_table
+         DO
+            v_div := v / (10.0 ** (exp OF sm_table[i]));
+            (ABS(v_div) < 10.0 AND ABS(v_div) >= 1.0 | 
+                  prefix := (prefix OF sm_table[i]); retval := TRUE; break_b)
+         OD;
+         break_b:
+         s := fixed(v_div, width, after) + " " + prefix
+      ELSE
+         # No prefix required. Just convert as is. #
+         s := fixed(v, width, after); 
+         retval := TRUE
+      FI;
+      done
+   FI;
+
+   # Go through all possible prefixes dividing by their exponent until we get a result #
+   # between 1.0 (inclusive) and 1000.0 (exclusive). Use only multiple of 3 exponents. #
+   FOR i TO ELEMS pe_table
+   DO
+      v_div := v / (10.0 ** (exp OF pe_table[i]));
+      (ABS(v_div) < 1000.0 AND ABS(v_div) >= 1.0 | 
+            prefix := (prefix OF pe_table[i]); retval := TRUE; break_a)
+   OD;
+   break_a:
+
+   # Format the result. #
+   s := fixed(v_div, width, after) + " " + prefix;
+
+   done:
+   retval
+);
+
+# Do the real work of string to real. This uses and returns (modified) start character index in p. #
+# If exp_ok is FALSE, this will not attempt to process exponents (scientific notation). This is for #
+# use with si_string_to_real(), where the prefix E (exa) may be read as an exponent. #
+PROC string_to_real_internal = (STRING s, REF REAL v, BOOL use_all_s, REF INT p, BOOL exp_ok) BOOL:
 (
    # Start with no integer part of mantissa, no decimal part, no exponent. #
    BOOL giman := FALSE; # Got integer part of mantissa? #
@@ -210,7 +370,6 @@ PROC string_to_real = (STRING s, REF REAL v, BOOL use_all_s) BOOL:
    REAL dman := 0.0;     # Value of mantissa after dp. #
 
    # Current character index. #
-   INT p := 1;
    INT np := 0; # Updated temp p. #
 
    # Process a leading sign, if any. #
@@ -245,9 +404,10 @@ PROC string_to_real = (STRING s, REF REAL v, BOOL use_all_s) BOOL:
    FI;
 
    # The next character must be: a) start of exponent, or b) start of decimal part of mantissa #
-   # or c) end of number. #
+   # or c) end of number. If we are not processing exponents and get E/e, try assembling a number now. #
    IF (s[p] = "E") OR (s[p] = "e")
    THEN
+      (NOT exp_ok | assemble_now);
       ge := TRUE;
       idman := 0;
       p +:= 1; (p > islen | fp_format_error)
@@ -266,9 +426,10 @@ PROC string_to_real = (STRING s, REF REAL v, BOOL use_all_s) BOOL:
    ( (NOT giman) AND (NOT gdman) | fp_format_error );
 
    # If next character is e and we have not already got exponent start, #
-   # then it could be start of exponent. #
+   # then it could be start of exponent unless we do not want  exponents. #
    IF (NOT ge) AND ((s[p] = "E") OR (s[p] = "e"))
    THEN
+      (NOT exp_ok | assemble_now);
       ge := TRUE;
       p +:= 1; (p > islen | fp_format_error)
    FI;
@@ -284,6 +445,7 @@ PROC string_to_real = (STRING s, REF REAL v, BOOL use_all_s) BOOL:
    FI;
 
    # Assemble the final real number. #
+   assemble_now:
    (gdman | dman := REAL(idman) / (10.0 ** min2int(ndman,9)) | dman := 0.0); # Mantissa, after dp. #
    v := (sign * (REAL(iman) + dman)); # The whole mantissa. #
    ((ABS iexp) > 307 | fp_format_error); # Must be < 10**308  #
@@ -330,12 +492,180 @@ OP DEGRAD = (REAL a) REAL : (a * pi / 180.0);
 # Radians to degrees operator. #
 OP RADDEG = (REAL a) REAL: (180.0 * a / pi);
 
+# Run a command in sh and retrieve the output as a string. Adapted from a68g docs. #
+PROC run_command_get_output = (STRING cmd, REF STRING output) BOOL:
+(
+   BOOL retval := FALSE;
+   IF STRING sh_cmd = " " + cmd + " ; 2>&1";
+      execve output("/bin/sh", ("sh", "-c", sh_cmd), "", output) >= 0
+   THEN
+      retval := TRUE
+   FI;
+   retval
+);
+
+# Return a string denoting the OS being used. #
+PROC get_os_name = STRING:
+(
+   STRING retval := "unknown";
+   STRING uname_output;
+   IF run_command_get_output("uname -a", uname_output)
+   THEN
+      IF string in string("Debian", NIL, uname_output)
+      THEN
+         retval := "debian"
+      ELIF string in string("Darwin", NIL, uname_output)
+      THEN
+         retval := "macos"
+      ELIF string in string("Linux", NIL, uname_output)
+      THEN
+         retval := "linux"
+      FI
+   FI;
+   retval
+);
+
+# Open a "regular" file. a68g open() only checks if a file exists when reading #
+# at the time of the first i/o operation. This function behaves more like Unix fopen()/open(). #
+# Note that modes r and w do not allow seeking or binary i/o. Use r+ or w+ for those capabilities. #
+# HOWEVER: binary does NOT mean 'raw bytes'. It is much more like FORTRAN UNFORMATTED. #
+PROC open_file = (STRING filename, STRING mode, REF FILE fio) INT:
+(
+   reset errno; # Set system error to 0. #
+
+   # Field open errors. The value returned by a68g open() says whether #
+   # the file is 'regular' or not. It doesn't encode success or failure as such. #
+   # Actually ... I don't see how to use on open error. What should the first argument be? #
+   # It can't be the REF FILE being opened (fio), because that hasn't been set yet. #
+   # I'm also not convinced it ever gets called. #
+   BOOL fopen_error := FALSE;
+   PROC field on open error = (REF FILE afio) BOOL: ( fopen_error := TRUE; TRUE );
+   on open error(stand in, field on open error);
+   INT ret_error := 0;
+
+   # If reading, check the file exists as a "regular" file. #
+   IF mode = "r"
+   THEN
+      (NOT file is regular(filename) | ret_error := errno; done);
+      VOID(open(fio, filename, stand in channel));
+      (fopen_error | print(("HX")); ret_error := errno; done)
+
+   # Read and write. File must already exist. #
+   ELIF mode = "r+"
+   THEN
+      (NOT file is regular(filename) | ret_error := errno; done);
+      VOID(open(fio, filename, stand back channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Writing. #
+   ELIF mode = "w"
+   THEN
+      VOID(open(fio, filename, stand out channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Read and write. File may not already exist. #
+   ELIF mode = "w+"
+   THEN
+      VOID(open(fio, filename, stand back channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Unsupported file mode string. #
+   ELSE
+      ret_error := 22 # Invalid argument. #
+   FI;
+
+   # Return errno. 0 if OK. #
+   done:
+   ret_error
+);
+
+# Open a character device. #
+PROC open_chardev = (STRING devname, STRING mode, REF FILE fio) INT:
+(
+   reset errno; # Set system error to 0. #
+
+   # Field open errors. The value returned by a68g open() says whether #
+   # the file is 'regular' or not. It doesn't encode success or failure as such. #
+   # See comment in open_file(). #
+   BOOL fopen_error := FALSE;
+   PROC field on open error = (REF FILE afio) BOOL: ( fopen_error := TRUE; TRUE );
+   on open error(stand in, field on open error);
+   INT ret_error := 0;
+
+   # In all cases, the file must be an extant character device. #
+   (NOT file is char device(devname) | ret_error := errno; done);
+
+   # Read only. No binary. No seek. #
+   IF mode = "r"
+   THEN
+      VOID(open(fio, devname, stand in channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Read and write. Binary OK. Seek OK. #
+   ELIF (mode = "r+") OR (mode = "w+")
+   THEN
+      VOID(open(fio, devname, stand back channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Write only. No binary. No seek. #
+   ELIF mode = "w"
+   THEN
+      VOID(open(fio, devname, stand out channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Unsupported file mode string. #
+   ELSE
+      ret_error := 22 # Invalid argument. #
+   FI;
+
+   done:
+   ret_error
+);
+
+# Print error message for ierror (as per errno) to stand error. Prepend with leader. #
+PROC print_os_error = (STRING leader, INT ierror) VOID:
+(
+   put(stand error, (leader + ": " + strerror(ierror), new line))
+);
+
 # ------ #
 # TESTS. #
 # ------ #
 
-IF FALSE
+IF TRUE
 THEN
+
+PROC stortst = (STRING s) VOID:
+(
+   REAL vt;
+   put(stand error, ("v ", s, ": ", string_to_real(s, vt, TRUE)));
+   put(stand error, (" result = ", vt, newline))
+);
+
+PROC stortst_f = (STRING s) VOID:
+(
+   REAL vt;
+   put(stand error, ("v ", s, ": ", string_to_real(s, vt, FALSE)));
+   put(stand error, (" result = ", vt, newline))
+);
+
+PROC sistrtst = (STRING s) REAL:
+(
+   STRING units;
+   REAL vt;
+   put(stand error, ("v ", s, ": ", si_string_to_real(s, vt, units)));
+   put(stand error, (" v = ", vt, " u = ", units, newline));
+   vt
+);
+
+PROC rtosistst = (REAL v) VOID:
+(
+   STRING s;
+   put(stand error, ("... v ", v, ": ", real_to_si_string(v, s, 8, 3, FALSE)));
+   put(stand error, (" s = ", s, newline));
+   put(stand error, ("... v ", v, ": ", real_to_si_string(v, s, 8, 3, TRUE)));
+   put(stand error, (" s = ", s, newline, newline))
+);
 
 print((split_string("hello,you nice,things",","), new line));
 print((split_string("",","), new line));
@@ -357,29 +687,84 @@ print((split_string("thing"," "), new line));
 print((split_string("   "," "), new line));
 
 REAL vt := 0;
-put(stand error, ("v 1: ", string_to_real("1", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 10: ", string_to_real("10", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 1.23: ", string_to_real("1.23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -1.23: ", string_to_real("-1.23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v +1.23: ", string_to_real("+1.23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v .23: ", string_to_real(".23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -.23: ", string_to_real("-.23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 0.23: ", string_to_real("0.23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -0.23: ", string_to_real("-0.23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v +0.23: ", string_to_real("+0.23", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 1.23e4: ", string_to_real("1.23e4", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 1.23e-4: ", string_to_real("1.23e-4", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -1.23e-4: ", string_to_real("-1.23e-4", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v .: ", string_to_real(".", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 1.3e: ", string_to_real("1.3e", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 1.gargle: ", string_to_real("1.gargle", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v 1.gargle: ", string_to_real("1.gargle", vt, FALSE), " result = ", vt, newline));
-put(stand error, ("v e2: ", string_to_real("e2", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v +: ", string_to_real("+", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -: ", string_to_real("-", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -E: ", string_to_real("-E", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -1E3: ", string_to_real("-1E3", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -1E30: ", string_to_real("-1E30", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -1E300: ", string_to_real("-1E300", vt, TRUE), " result = ", vt, newline));
-put(stand error, ("v -1E3000: ", string_to_real("-1E3000", vt, TRUE), " result = ", vt, newline))
+stortst("1");
+stortst("10");
+stortst("1.23");
+stortst("-1.23");
+stortst("+1.23");
+stortst(".23");
+stortst("-.23");
+stortst("0.23");
+stortst("-0.23");
+stortst("+0.23");
+stortst("1.23e4");
+stortst("1.23e-4");
+stortst("-1.23e-4");
+stortst(".");
+stortst("1.3e");
+stortst("1.gargle");
+stortst_f("1.gargle");
+stortst("e2");
+stortst("+");
+stortst("-");
+stortst("-E");
+stortst("-1E3");
+stortst("-1E30");
+stortst("-1E300");
+stortst("-1E3000");
+
+print(("Open file mode r test. file exists.", new line));
+FILE fin;
+INT fstatus := open_file("test.ini", "r", fin);
+IF fstatus /= 0
+THEN
+   print_os_error("open test.ini", fstatus)
+ELSE
+   close(fin)
+FI;
+
+print(("Open file mode r test. file does not exist.", new line));
+fstatus := open_file("new.txt", "r", fin);
+IF fstatus /= 0
+THEN
+   print_os_error("open new.txt", fstatus)
+ELSE
+   close(fin)
+FI;
+
+print(("Open file mode w test.", new line));
+FILE fout;
+fstatus := open_file("new.txt", "w", fout);
+IF fstatus /= 0
+THEN
+   print_os_error("create new.txt", fstatus)
+ELSE
+   put(fout, ("This is new.", new line));
+   close(fout)
+FI;
+
+print(("Open file bad mode test.", new line));
+fstatus := open_file("new.txt", "x", fout);
+IF fstatus /= 0
+THEN
+   print_os_error("bad mode test", fstatus)
+ELSE
+   close(fout)
+FI;
+
+vt := sistrtst("1.23 kHz"); rtosistst(vt);
+vt := sistrtst("1.23kHz"); rtosistst(vt);
+vt := sistrtst("32 uA"); rtosistst(vt);
+vt := sistrtst("987 EB"); rtosistst(vt);
+vt := sistrtst("9.87 EB"); rtosistst(vt);
+vt := sistrtst("90.8 MHz"); rtosistst(vt);
+vt := sistrtst("1.23"); rtosistst(vt);
+vt := sistrtst("6.78daL"); rtosistst(vt);
+vt := sistrtst("1.7ha"); rtosistst(vt);
+vt := sistrtst("6.3cm"); rtosistst(vt);
+vt := sistrtst("0cm"); rtosistst(vt);
+vt := sistrtst("0THz"); rtosistst(vt);
+vt := sistrtst("-30YHz"); rtosistst(vt);
+vt := sistrtst("-27ym"); rtosistst(vt);
+
 FI;

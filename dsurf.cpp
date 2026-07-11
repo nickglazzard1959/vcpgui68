@@ -12,7 +12,7 @@
 //   sudo apt install libsdl2-image-dev
 //
 // Build:
-//   g++ -O0 -g dsurf.cpp -o d2try -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image
+//   g++ -O0 -g dsurf.cpp -o dsurf -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image
 //
 // Nick Glazzard 2026.
 // -------------------
@@ -130,6 +130,7 @@ typedef struct
   TEXTURE_ATLAS tex_atlas; // Texture atlas.
   std::vector<SENSE_RECT> sense_rects; // Areas in which we want to know about events.
   CMD_MAP cmdmap;          // Command name to code map.
+  std::string fontdir;     // Where to look for TrueType fonts;
 } DRAW_STATE;
 
 typedef struct
@@ -582,12 +583,11 @@ int draw_sub_texture_from_atlas( SDL_Renderer* renderer,
                                 rotang, rx, ry);
 }
 
-int load_TTF_font( std::string filename, int size, int ifont, DRAW_STATE& dstate)
-//-------------------------------------------------------------------------------
+int load_TTF_font( std::string filename, int size, int ifont, DRAW_STATE& dstate )
+//--------------------------------------------------------------------------------
 // Load a TTF font at size in to font ifont.
 {
-  std::string fontdir = "/usr/share/fonts/truetype/liberation2/";
-  std::string fontname = fontdir + filename;
+  std::string fontname = dstate.fontdir + "/" + filename;
 
   // Ensure ifont is valid.
   if( (ifont < 0) || (ifont >= MXF) ){
@@ -1102,6 +1102,7 @@ int main (int ArgCount, char **Args)
   for( int i=0; i<MXF; i++ )
     dstate.fonts[i] = NULL;
   dstate.cur_font = 0;
+  dstate.fontdir = "/usr/share/fonts/truetype/liberation2";
 
   // Command map.
   CMD_MAP cmdmap
@@ -1145,6 +1146,7 @@ int main (int ArgCount, char **Args)
   app.add_option("-x,--width", iw, "Width of display window in pixels.");
   app.add_option("-y,--height", ih, "Height of display window in lines.");
   app.add_option("-t,--title", title, "Set the window title.");
+  app.add_option("-f,--fontdir", dstate.fontdir, "TrueType fonts directory to use.");
 
   app.add_flag("-d,--debug", dstate.debug_mode, "Turn on debug output.");
   app.add_flag("-k,--keep", dstate.keep_on_eof, "Keep open after EOF on stdin.");

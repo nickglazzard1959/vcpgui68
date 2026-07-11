@@ -7,11 +7,12 @@ Nick Glazzard 2026.
 COMMENT
 
 PR read "utility.a68" PR
-PR read "arg_parser.a68" PR
 
 # ================================== #
 # Run DSURF and communicate with it. #
 # ================================== #
+
+STRING font_directory := "/usr/share/fonts/truetype/liberation2";
 
 # Handle end of the pipe connections to DSURF (DSURF exited?). #
 # Establish by using "on logical file end(pipes)" in main line,  #
@@ -45,7 +46,10 @@ PROC open_dsurf = (STRING title) PIPE:
    OD;
 
    # Run the display program and return the data needed to talk to it. #
-   PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf", "--title", title), envars);
+   PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf", 
+                                                    "--title", title,
+                                                    "--fontdir", font_directory), 
+                                        envars);
    IF pid OF dsurf_pipe = 0
    THEN
       put(stand error, ("open_dsurf(): Failed to create child process ", new line));
@@ -300,6 +304,12 @@ PROC ds_text_in_font = ( PIPE p, STRING s, INT x, y, BOOL centered, INT dy ) VOI
    STRING out_string := string(LOC STRING, ("$text_in_font$,",wint(x),",",wint(y),",$"+s+"$,",
                                             wint((centered | 1 | 0)),",",wint(dy)));
    write_dsurf(p, out_string+rgb_font_string)  
+);
+
+# Set the TrueType font directory to search for fonts. #
+PROC ds_set_fontdir = ( STRING dir ) VOID:
+(
+   font_directory := dir
 );
 
 # Set the current font by number. #
@@ -1347,7 +1357,7 @@ PROC get_metric_info = ( STRING from_file, STRING key, REF []INT values ) INT:
    PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
    FOR i TO ELEMS values DO values[i] := 0 OD;
    FILE fin;
-   IF open(fin, from_file, stand in channel) /= 0
+   IF open_file(from_file, "r", fin) /= 0
    THEN
       put(stand error, (("Failed to open: ",from_file," for read.",new line)))
    ELSE

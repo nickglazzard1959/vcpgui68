@@ -8,6 +8,7 @@ COMMENT
 
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
+PR read "config_parser.a68" PR
 PR read "vcpgui.a68" PR
 
 # Call back routine for "but2". There are several interesting features here. #
@@ -85,6 +86,24 @@ MODE USERDATA = STRUCT(INT a, STRING b);
 
 USERDATA ud := (2, "thing");
 
+REF ARG_PARSE arg_parser := make_arg_parser("Test VCPGUI68 and DSURF");
+REF STRING config_file := arg_add_string_option(arg_parser, "-c", "--config",
+                                                "Configuration file name.",
+                                                "vcpgui.ini");
+( NOT parse_args(arg_parser) |
+      put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
+
+STRING os_name := get_os_name;
+REF CONFIG_PARSE config_parser := make_config_parser(config_file);
+( NOT parse_config_file(config_parser) |
+      put(stand error, ("Failed to parse configuration file.", new line)); stop );
+STRING font_dir := config_get_string_value(config_parser,
+                                           os_name+".font_dir",
+                                           "/usr/share/fonts/truetype/liberation2");
+print(("font dir = ",font_dir,new line));
+
+ds_set_fontdir(font_dir);
+   
 PIPE dsurf_pipe = open_dsurf("Hello");
 print(("DSURF PID = ", wint(pid OF dsurf_pipe), new line));
 on logical file end(read OF dsurf_pipe, dsurf_end_handler);
