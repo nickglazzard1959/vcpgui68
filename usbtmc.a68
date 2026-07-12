@@ -79,7 +79,7 @@ Check UDEV rules or sudo chmod 666 it.", new line));
    FI;
 
    # Open the device file. #
-   INT status := open_chardev(dev_name, "r", fin OF conn);
+   INT status := open_chardev(dev_name, "r+", fin OF conn);
    IF status /= 0
    THEN
       put(stand error, ("Failed to open: ", dev_name," for read. Reason: ", 
@@ -87,7 +87,7 @@ Check UDEV rules or sudo chmod 666 it.", new line));
       done
    FI;
 
-   status := open_chardev(dev_name, "w", fout OF conn);
+   status := open_chardev(dev_name, "w+", fout OF conn);
    IF status /= 0
    THEN
       put(stand error, ("Failed to open: ", dev_name," for write. Reason: ", 

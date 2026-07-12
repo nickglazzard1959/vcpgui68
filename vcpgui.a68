@@ -23,7 +23,7 @@ PROC dsurf_end_handler = (REF FILE f) BOOL:
 );
 
 # Run DSURF returning a pair of pipes connected to its stdin and stdout. #
-PROC open_dsurf = (STRING title) PIPE:
+PROC open_dsurf = (STRING title, INT width, INT height) PIPE:
 (
    # Get necessary environment variables. #
    # At least XDG_RUNTIME_DIR and DISPLAY are needed. #
@@ -48,7 +48,9 @@ PROC open_dsurf = (STRING title) PIPE:
    # Run the display program and return the data needed to talk to it. #
    PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf", 
                                                     "--title", title,
-                                                    "--fontdir", font_directory), 
+                                                    "--fontdir", font_directory,
+                                                    "--width", wint(width),
+                                                    "--height", wint(height)), 
                                         envars);
    IF pid OF dsurf_pipe = 0
    THEN
@@ -618,7 +620,7 @@ PROC instantiate_radiobutton = (PIPE p, REF RADIOBUTTON rb) VOID:
    []STRING label_array = split_string(labels OF rb, ",");
    INT button_width := (width OF radiobutton_metrics) % (downscale OF radiobutton_metrics);
    INT array_width := (n_buttons OF rb) * button_width;
-   INT xc := (x OF rb) - array_width % 2;
+   INT xc := (x OF rb) - array_width % 2 + button_width % 2;
    INT yc := y OF rb;
 
    ds_set_colour_rgba_struct(p, c OF rb);
@@ -656,7 +658,7 @@ PROC update_radiobutton = (PIPE p, REF RADIOBUTTON rb, STRING event, STRING sub_
          # Turn current button off. #
          INT button_width := (width OF radiobutton_metrics) % (downscale OF radiobutton_metrics);
          INT array_width := (n_buttons OF rb) * button_width;
-         INT xc := (x OF rb) - array_width % 2;
+         INT xc := (x OF rb) - array_width % 2 + button_width % 2;
          INT x_sub := xc + (which OF rb - 1) * button_width;
          ds_remove_at(p, x_sub, y OF rb);
          ds_sub_texture(p, "button-off", x_sub, y OF rb, downscale OF radiobutton_metrics, TRUE, 0, 0, 0);
@@ -733,14 +735,14 @@ PROC calc_numeric_layout = (REF NUMERICDISPLAY nd, REF INT digit_width, array_wi
 (
    digit_width := (width OF numericdisplay_metrics) % (downscale OF numericdisplay_metrics);
    array_width := (n_digits OF nd + 2) * digit_width;
-   xc := (x OF nd) - array_width % 2 + digit_width;
+   xc := (x OF nd) - array_width % 2 + digit_width + digit_width % 2;
    yc := (y OF nd)
 );
 
 # Calculate where a decimal point should be drawn. This is a bit hairy. #
 PROC calc_dp_position = (REF NUMERICDISPLAY nd, INT digit_width, array_width, yc, REF INT xcc, ycc) VOID:
 (
-   INT xe := (x OF nd) + array_width % 2;
+   INT xe := (x OF nd) + array_width % 2 + digit_width % 2;
    xcc := xe - (min2int(n_dps OF nd, n_digits OF nd)+1) * digit_width - ROUND ((digit_width % 2) - (0.06 * digit_width));
    ycc := ROUND (yc + (height OF numericdisplay_metrics % downscale OF numericdisplay_metrics) / 3.5)
 );
@@ -748,7 +750,7 @@ PROC calc_dp_position = (REF NUMERICDISPLAY nd, INT digit_width, array_width, yc
 # Calculate corners of a bezel rectangle for a numeric display. #
 PROC calc_numeric_bezel = (REF NUMERICDISPLAY nd, INT digit_width, array_width, REF INT x1, y1, x2, y2) VOID:
 (
-   x1 := (x OF nd) - array_width % 2 - bezel_width OF numericdisplay_metrics - (digit_width % 2);
+   x1 := (x OF nd) - array_width % 2 - bezel_width OF numericdisplay_metrics;# - (digit_width % 2);#
    y1 := (y OF nd) - (height OF numericdisplay_metrics % downscale OF numericdisplay_metrics) % 2 - 
          bezel_width OF numericdisplay_metrics;
    x2 := x1 + array_width + 2 * bezel_width OF numericdisplay_metrics;
@@ -766,7 +768,6 @@ PROC instantiate_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd) VOID:
    # Calculate coordinates for drawing these things. #
    calc_numeric_layout(nd, digit_width, array_width, xc, yc);
    calc_numeric_bezel(nd, digit_width, array_width, x1, y1, x2, y2);
-   put(stand error,("*** yc = ", wint(yc), newline));
 
    # Draw a "bezel" using a rounded rectangle. #
    ds_set_colour_rgba_struct(p, c OF nd);
@@ -812,7 +813,7 @@ PROC instantiate_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd) VOID:
 
    # If a units string has been set, draw it. #
    (units OF nd /= "" | ds_text_in_font(p, units OF nd, 
-                                        (x OF nd) + array_width % 2 - digit_width, 
+                                        (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
                                         yc - (y2 - y1) % 4, TRUE, 0));
 
    pop_dstate

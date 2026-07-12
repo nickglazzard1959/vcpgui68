@@ -1,0 +1,99 @@
+PR read "utility.a68" PR
+PR read "arg_parser.a68" PR
+PR read "config_parser.a68" PR
+PR read "vcpgui.a68" PR
+PR read "rigol3kdmm.a68" PR
+
+
+PROC measure_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   REAL measurement;
+   BOOL overload;
+
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF PUSHBUTTON pb): (
+            IF measure_dm3k(device, measurement, overload) = 0
+            THEN
+               print(("*** *** ",measurement,new line));
+               (overload | measurement := 999.99999);
+               set_numericdisplay_real(dsurf_pipe, "display", measurement, 5, FALSE);
+               ds_show_display(dsurf_pipe)
+            FI
+         )
+      OUT
+         put(stand error, (("Expected a push button. Got something else!", new line)))
+      ESAC
+   FI;
+   FALSE
+);
+
+# Parse command line arguments. These MUST appear after --. #
+REF ARG_PARSE arg_parser := make_arg_parser("Rigol DM3K Multimeter Virtual Control Panel");
+REF INT device_number := arg_add_int_option(arg_parser, "-d", "--device",
+                                                "Device number.",
+                                                2);
+( NOT parse_args(arg_parser) |
+      put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
+
+# Try to open the device before we do anything with the GUI. #
+REF DMKKK device := open_dm3k(device_number, FALSE);
+(DEV_INVALID device | print(("Failed.",newline)); stop);
+
+# Open and configure the GUI display surface. #
+INT width := 600, height := 250;
+
+PIPE dsurf_pipe = open_dsurf("Rigol DM3K Multimeter", width, height);
+print(("DSURF PID = ", wint(pid OF dsurf_pipe), new line));
+on logical file end(read OF dsurf_pipe, dsurf_end_handler);
+
+read_component_metrics("dsurf.tal");
+ds_load_texture(dsurf_pipe, "dsurf.tal");
+ds_load_font(dsurf_pipe, "LiberationSerif-BoldItalic.ttf", 30, 1);
+
+# Define the GUI components. #
+ds_use_main(dsurf_pipe);
+ds_reset_display(dsurf_pipe);
+
+ds_set_colour_rgba(dsurf_pipe, 50, 50, 50, 255);
+ds_clear(dsurf_pipe);
+
+ds_set_colour_rgba(dsurf_pipe, 180, 180, 180, 255);
+add_numericdisplay("display", width%2, 65, 123, 8, 0, TRUE);
+
+ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
+ds_set_font(dsurf_pipe, 0);
+add_radiobutton("function", 
+                "DCV,ACV,DCI,ACI,OHM,OHM4,FREQ,PERIOD,CONT,DIODE,CAP", 
+                null_proc, width%2, 140, 1);
+
+ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
+ds_text_in_font(dsurf_pipe, "FUNCTION", width%2, 165, TRUE, 0);
+
+ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
+add_radiobutton("range", 
+                "AUTO,MANUAL", 
+                null_proc, 75, 200, 1);
+add_pushbutton("uprange", "UP", null_proc, 150, 200);
+add_pushbutton("downrange", "DOWN", null_proc, 200, 200);
+ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
+ds_text_in_font(dsurf_pipe, "RANGE", 125, 225, TRUE, 0);
+
+ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
+add_pushbutton("measure", "MEAS", measure_proc, 300, 200);
+
+ds_set_colour_rgba(dsurf_pipe, 200, 0, 0, 255);
+add_pushbutton("off", "OFF", quit_proc, width-50, 200);
+
+# Create and run the GUI. #
+instantiate(dsurf_pipe);
+
+run_event_loop(dsurf_pipe);
+
+# Shut down. #
+end:
+close_dsurf(dsurf_pipe)
+
+

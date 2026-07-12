@@ -632,7 +632,7 @@ PROC print_os_error = (STRING leader, INT ierror) VOID:
 # TESTS. #
 # ------ #
 
-IF TRUE
+IF FALSE
 THEN
 
 PROC stortst = (STRING s) VOID:
@@ -765,6 +765,6 @@ vt := sistrtst("6.3cm"); rtosistst(vt);
 vt := sistrtst("0cm"); rtosistst(vt);
 vt := sistrtst("0THz"); rtosistst(vt);
 vt := sistrtst("-30YHz"); rtosistst(vt);
-vt := sistrtst("-27ym"); rtosistst(vt);
+vt := sistrtst("-27ym"); rtosistst(vt)
 
 FI;

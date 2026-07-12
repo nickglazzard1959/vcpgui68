@@ -269,7 +269,7 @@ PROC set_range_for_value_dm3k = (REF DMKKK dev3k, REAL value) INT:
 # TESTS. #
 # ------ #
 
-IF TRUE
+IF FALSE
 THEN
 REF DMKKK device := open_dm3k(2, FALSE);
 (DEV_INVALID device | print(("Failed.",newline)); stop);
@@ -303,4 +303,4 @@ print((set_range_for_value_dm3k(device, 0.1), new line));
 print((measure_dm3k(device, value, overload), new line));
 print(("Manual Value (range by value 0.1) = ", value, " Overload? ", overload, new line))
 
-FI
+FI;

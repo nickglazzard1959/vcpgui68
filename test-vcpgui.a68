@@ -104,7 +104,7 @@ print(("font dir = ",font_dir,new line));
 
 ds_set_fontdir(font_dir);
    
-PIPE dsurf_pipe = open_dsurf("Hello");
+PIPE dsurf_pipe = open_dsurf("Hello", 1000, 1000);
 print(("DSURF PID = ", wint(pid OF dsurf_pipe), new line));
 on logical file end(read OF dsurf_pipe, dsurf_end_handler);
 
