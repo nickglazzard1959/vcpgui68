@@ -92,6 +92,9 @@ PROC set_function_dm3k = (REF DMKKK dev3k, STRING function) INT:
    # This is needed to get the range the device has selected (or user has specified).  #
    done:
    (retval = 0 | retval := query_usbtmc(dev, ":FUNC?", func OF dev3k));
+   (func OF dev3k = "2WR" | func OF dev3k := "RES");   # Some oddities here! #
+   (func OF dev3k = "4WR" | func OF dev3k := "FRES");   
+   put(stand error, ("func OF dev3k = ",func OF dev3k,newline));
    retval
 );
 
@@ -209,7 +212,7 @@ PROC measure_dm3k = (REF DMKKK dev3k, REF REAL value, REF BOOL overload) INT:
 
    done:
    (status = 0 | ( NOT string_to_real(stvalue, value, FALSE) | status := earg ) );
-   overload := (ABS(value) > 10000.0);
+   overload := (ABS(value) > 8E15); # Overload seems to be signalled by 9E15. #
    status
 );
 

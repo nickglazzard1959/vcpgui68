@@ -173,6 +173,7 @@ PROC all_digits_signed = (STRING s) BOOL:
 );
 
 # String to integer. NOTE: I don't know how to use event routines with string transput ... #
+# Actually, I think associate is the answer, but never mind. #
 PROC string_to_int = (STRING s) INT:
 (
    INT retval := 0, sign := 1;
@@ -283,16 +284,16 @@ PROC si_string_to_real = (STRING s, REF REAL v, REF STRING units) BOOL:
    retval
 );
 
-# Real to string, adding standard SI metric prefixes. #
-# Full width of string is width with after decimal places. #
-# If do_small, use prefixes for numbers between 0.001 and 1000 (c, d, da, h). #
-# Otherwise, only use multiples of 1000 (k, M, G, etc.) for all numbers. #
-PROC real_to_si_string = (REAL v, REF STRING s, INT width, after, BOOL do_small) BOOL:
+# Convert a real number to a scaled real number with an appropriate SI prefix. #
+# If do_small is TRUE, use hecto, deca, deci and centi otherwise use only 10**3n prefixes. #
+# This is quite hard to get right, and I'm not certain I have in all cases! #
+PROC real_to_si_real = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small) BOOL:
 (
    BOOL retval := FALSE;
+   prefix := "";
 
-   # If |v| is > 10**33 or < 10**-33, just convert. No defined prefixes for these. #
-   (ABS(v) > 1.0E33 OR ABS(v) < 1.0E-33 | s := fixed(v, width, after); done);
+   # If |v| is > 10**33 or < 10**-33, just return v. No defined prefixes for these. #
+   (ABS(v) > 1.0E33 OR ABS(v) < 1.0E-33 | v_out := v; done);
 
    # Define known prefix codes and associated powers of 10. #
    MODE PREFIX_EXP = STRUCT(STRING prefix, INT exp);
@@ -303,10 +304,10 @@ PROC real_to_si_string = (REAL v, REF STRING s, INT width, after, BOOL do_small)
 
    []PREFIX_EXP sm_table = (("h",  2),("da", 1),("",   0),("d", -1),("c", -2));
 
-   # If |v| is between 1/1000 and 1000, perhaps no prefix is required. #
+   # If |v| is between 1/100 (or 1/10) and 1000, perhaps no prefix is required. #
    REAL v_div := 0.0;
-   STRING prefix := "";
-   IF ABS(v) < 1000.0 AND ABS(v) > 0.001
+   REAL min_no_prefix := ( do_small | 0.01 | 0.1 );
+   IF ABS(v) < 1000.0 AND ABS(v) > min_no_prefix
    THEN
       IF do_small
       THEN
@@ -318,10 +319,10 @@ PROC real_to_si_string = (REAL v, REF STRING s, INT width, after, BOOL do_small)
                   prefix := (prefix OF sm_table[i]); retval := TRUE; break_b)
          OD;
          break_b:
-         s := fixed(v_div, width, after) + " " + prefix
+         v_out := v_div
       ELSE
-         # No prefix required. Just convert as is. #
-         s := fixed(v, width, after); 
+         # No prefix required. Just leave as is. #
+         v_out := v; 
          retval := TRUE
       FI;
       done
@@ -338,7 +339,52 @@ PROC real_to_si_string = (REAL v, REF STRING s, INT width, after, BOOL do_small)
    break_a:
 
    # Format the result. #
-   s := fixed(v_div, width, after) + " " + prefix;
+   v_out := v_div;
+
+   done:
+   retval
+);
+
+# Convert a real number to a scaled real number with an appropriate SI prefix, as a string. #
+# The scaled number before the prefix will have width characters, after after the decimal pt. E.g. 8, 3 #
+PROC real_to_si_string = (REAL v, REF STRING s, INT width, after, BOOL do_small) BOOL:
+(
+   BOOL retval := FALSE;
+   REAL v_out := 0.0;
+   STRING prefix := "";
+   
+   # Convert v to a number in the range [1 : 1000) with a prefix or [0 : 0.001] with no prefix. #
+   retval := real_to_si_real(v, v_out, prefix, do_small);
+   (NOT retval | done);
+
+   # Format the result v_out as a string with a prefix. #
+   s := trim_trailing(fixed(v_out, width, after) + " " + prefix);
+
+   # Return. #
+   done:
+   retval
+);
+
+# Convert a real number to a scaled real number with an appropriate SI prefix, as a scaled integer. #
+# The scaled integer will have n_digits and should be displayed with dp (returned) digits after the #
+# decimal point. This is for use primarily with vcpgui's 'numeric display' component. #
+PROC real_to_si_real_scaled = (REAL v, REF INT iv_out, INT n_digits, 
+                               REF STRING prefix, REF INT dp, BOOL do_small) BOOL:
+(
+   BOOL retval := FALSE;
+   REAL v_out := 0.0;
+   
+   # Convert v to a number in the range [1 : 1000) with a prefix or [0 : 0.001] with no prefix. #
+   retval := real_to_si_real(v, v_out, prefix, do_small);
+   (NOT retval | done);
+
+   # See how many digits we have in the SI scaled real after the decimal point. #
+   REAL log_v := log(ABS v_out);
+   INT n_ints := TRUNC log_v + ((SIGN log_v) < 0 | 0 | 1);
+   dp := n_digits - n_ints;
+
+   # Scale to an integer. #
+   iv_out := TRUNC (v_out * (10.0 ** dp));
 
    done:
    retval
@@ -667,6 +713,32 @@ PROC rtosistst = (REAL v) VOID:
    put(stand error, (" s = ", s, newline, newline))
 );
 
+PROC rtosistst2 = (REAL v) VOID:
+(
+   STRING s;
+   put(stand error, ("... v ", v, ": ", real_to_si_string(v, s, 8, 3, TRUE)));
+   put(stand error, (" s = ", s, newline))
+);
+
+PROC rtosistst3 = (REAL v) VOID:
+(
+   STRING s;
+   put(stand error, ("... v ", v, ": ", real_to_si_string(v, s, 8, 3, FALSE)));
+   put(stand error, (" s = ", s, newline))
+);
+
+PROC rtosistst4 = (REAL v) VOID:
+(
+   INT iv, dp, bdp;
+   BOOL ok;
+   STRING prefix;
+   ok := real_to_si_real_scaled(v, iv, 8, prefix, dp, FALSE);
+   STRING s := wint(iv) + " " + prefix;
+   bdp := 8 - dp;
+   put(stand error, ("... v ", v, ": ", ok));
+   put(stand error, (" s = ", s[1:bdp]+"."+s[bdp+1:], " dp = ", wint(dp), newline))
+);
+
 print((split_string("hello,you nice,things",","), new line));
 print((split_string("",","), new line));
 print((split_string("things,",","), new line));
@@ -765,6 +837,60 @@ vt := sistrtst("6.3cm"); rtosistst(vt);
 vt := sistrtst("0cm"); rtosistst(vt);
 vt := sistrtst("0THz"); rtosistst(vt);
 vt := sistrtst("-30YHz"); rtosistst(vt);
-vt := sistrtst("-27ym"); rtosistst(vt)
+vt := sistrtst("-27ym"); rtosistst(vt);
+
+first random(13579);
+
+REAL test_val := 1E15;
+FOR i TO 30
+DO
+   rtosistst2(test_val);
+   test_val /:= 10
+OD;
+
+put(stand error, (newline));
+
+test_val := 1E15;
+FOR i TO 30
+DO
+   rtosistst2(next random * test_val);
+   test_val /:= 10
+OD;
+
+put(stand error, (newline));
+
+test_val := -1E15;
+FOR i TO 30
+DO
+   rtosistst3(test_val);
+   test_val /:= 10
+OD;
+
+put(stand error, (newline));
+
+test_val := -1E15;
+FOR i TO 30
+DO
+   rtosistst3(next random * test_val);
+   test_val /:= 10
+OD;
+
+put(stand error, (newline));
+
+test_val := 1E15;
+FOR i TO 30
+DO
+   rtosistst4(test_val);
+   test_val /:= 10
+OD;
+
+put(stand error, (newline));
+
+test_val := 1E15;
+FOR i TO 30
+DO
+   rtosistst4(next random * test_val);
+   test_val /:= 10
+OD
 
 FI;

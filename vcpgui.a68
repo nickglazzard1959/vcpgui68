@@ -73,6 +73,7 @@ PROC sync_dsurf = (PIPE p, STRING s) VOID:
    STRING s := read_dsurf(p);
    WHILE s /= "SYNC"
    DO
+      put(stand error, ("^^^^ DISCARDED ^^^^",newline));
       s := read_dsurf(p)
    OD
 );
@@ -86,7 +87,7 @@ PROC read_dsurf = ( PIPE p ) STRING:
 (
    STRING instring := "";
    get(read OF p, (instring, new line));
-   CO put(stand error, ("[",instring,"]",new line)); CO
+   put(stand error, ("[",instring,"]",new line));
    instring
 );
 
@@ -107,7 +108,7 @@ COMMENT
 
 MODE RGBACOLOUR = STRUCT( INT r, g, b, a );
 MODE DSTATE = STRUCT(RGBACOLOUR c, INT ifont);
-DSTATE dstate := ((0, 0, 0, 255), 1);
+DSTATE dstate := ((0, 0, 0, 255), 0); # black, font 0 (default loaded by dsurf). #
 INT max_dstates = 10;
 [max_dstates]DSTATE dstate_stack;
 INT dstate_sp := 0;
@@ -159,8 +160,9 @@ PROC ds_reset_display = ( PIPE p ) VOID:
 # Show display (swap buffers) #
 PROC ds_show_display = ( PIPE p ) VOID:
 (
-   write_dsurf(p, "$*show_display_sync$");
-   sync_dsurf(p, "show_display")
+   put(stand error, ("==== SYNC REQ ====", new line));
+   write_dsurf(p, "$*show_display_sync$")
+   CO sync_dsurf(p, "show_display") CO
 );
 
 # Use the main display list.  #
@@ -361,6 +363,19 @@ PROC ds_remove_at = ( PIPE p, INT x, y ) VOID:
    write_dsurf(p, out_string)
 );
 
+# Start periodic event timer. #
+PROC ds_start_timer = ( PIPE p, INT milliseconds ) VOID:
+(
+   STRING out_string := string(LOC STRING, ("$*start_timer$",wint(milliseconds)));
+   write_dsurf(p, out_string)
+);
+
+# Stop periodic event timer. #
+PROC ds_stop_timer = ( PIPE p ) VOID:
+(
+   write_dsurf(p, "$*stop_timer$")
+);
+
 
 # ============== #
 #  TINY UI CODE  #
@@ -380,10 +395,11 @@ MODE SELECTOR = STRUCT( STRING tag, STRING labels, USERPROC proc, INT x, y, INT 
 MODE KEYPAD = STRUCT( STRING tag, USERPROC proc, INT x, y, INT ivalue, isign, idp, STRING ndtag,
                       INT old_ivalue, old_isign, old_idp, RGBACOLOUR c );
 MODE NUMERICDISPLAY = STRUCT( STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup,
-                              STRING units, RGBACOLOUR c );
+                              STRING units, STRING function, RGBACOLOUR c );
+MODE TIMER = STRUCT( STRING tag, USERPROC proc, INT milliseconds );
 
 MODE ANYBUTTONREF = UNION(REF PUSHBUTTON, REF TOGGLEBUTTON, REF RADIOBUTTON, REF NUMERICDISPLAY,
-                         REF KNOB, REF SELECTOR, REF KEYPAD);
+                         REF KNOB, REF SELECTOR, REF KEYPAD, REF TIMER);
 
 FLEX [1:0] ANYBUTTONREF components;
 
@@ -395,6 +411,7 @@ MODE SELECTOR_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE KEYPAD_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE NUMERICDISPLAY_LAYOUT = STRUCT( INT width, INT height, INT downscale, INT bezel_width );
 
+# Default component metrics, overriddem by TAL file specifications. #
 PUSHBUTTON_LAYOUT pushbutton_metrics := (100, 64, 2);
 TOGGLEBUTTON_LAYOUT togglebutton_metrics := (100, 64, 2);
 RADIOBUTTON_LAYOUT radiobutton_metrics := (100, 64, 2);
@@ -647,11 +664,13 @@ PROC update_radiobutton = (PIPE p, REF RADIOBUTTON rb, STRING event, STRING sub_
       STRING r_sub_tag := sub_tag; # sub_tag cannot be changed, but gets() might (it won't). #
       INT new_which;
       gets(r_sub_tag, new_which);
+      put(stand error, ("new_which=",wint(new_which)," old=",wint(which OF rb),newline));
       []STRING label_array = split_string(labels OF rb, ",");
 
       # If it isn't the one already set, update. #
       IF new_which /= (which OF rb)
       THEN
+         put(stand error, ("change",newline));
          push_dstate;
          ds_set_colour_rgba_struct(p, c OF rb);
 
@@ -720,7 +739,7 @@ PROC read_numericdisplay_metrics = (STRING talfile) VOID:
 PROC make_numericdisplay = (STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup) REF NUMERICDISPLAY:
 (
    REF NUMERICDISPLAY new = HEAP NUMERICDISPLAY;
-   new := (tag, x, y, value, n_digits, n_dps, lz_sup, "", c OF dstate);
+   new := (tag, x, y, value, n_digits, n_dps, lz_sup, "", "", c OF dstate);
    new
 );
 
@@ -812,9 +831,26 @@ PROC instantiate_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd) VOID:
                         downscale OF numericdisplay_metrics, TRUE, 0, 0, 0));
 
    # If a units string has been set, draw it. #
-   (units OF nd /= "" | ds_text_in_font(p, units OF nd, 
-                                        (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
-                                        yc - (y2 - y1) % 4, TRUE, 0));
+   IF units OF nd /= "" 
+   THEN
+      ds_set_colour_rgba(p, 255, 199, 20, 255);
+      ds_set_font(p, 1); # Use font 1 to draw units. #
+      ds_text_in_font(p, units OF nd, 
+                      (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
+                      yc - (y2 - y1) % 4, TRUE, 0);
+      ds_set_font(p, 0)
+   FI;
+
+   # If a function string has been set, draw it. #
+   IF function OF nd /= "" 
+   THEN
+      ds_set_colour_rgba(p, 255, 199, 20, 255);
+      ds_set_font(p, 1); # Use font 1 to draw. #
+      ds_text_in_font(p, function OF nd, 
+                      (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
+                      yc + (y2 - y1) % 4, TRUE, 0);
+      ds_set_font(p, 0)
+   FI;
 
    pop_dstate
 );
@@ -906,6 +942,23 @@ PROC set_numericdisplay_units = (PIPE p, STRING tag, STRING units) VOID:
          )
       OUT
          put(stand error,(("set_numericdisplay_units(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+      ESAC
+   FI
+);
+
+PROC set_numericdisplay_function = (PIPE p, STRING tag, STRING function) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF NUMERICDISPLAY nd): (
+            function OF nd := function;
+            update_numericdisplay(p, nd, value OF nd, n_dps OF nd, lz_sup OF nd)
+         )
+      OUT
+         put(stand error,(("set_numericdisplay_function(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
       ESAC
    FI
 );
@@ -1386,6 +1439,55 @@ PROC get_metric_info = ( STRING from_file, STRING key, REF []INT values ) INT:
    n_items
 );
 
+
+# ----- #
+# TIMER #
+# ----- #
+
+# Make a timer. For now, there can only be one and it must have tag 'timer'. #
+PROC make_timer = (STRING tag, USERPROC proc, INT milliseconds) REF TIMER:
+(
+   REF TIMER new = HEAP TIMER;
+   new := (tag, proc, milliseconds);
+   new
+);
+
+# Add a timer to the defined components. #
+PROC add_timer = (STRING tag, USERPROC proc, INT milliseconds) VOID:
+(
+   (check_new_tag(tag) | add_component( make_timer(tag, proc, milliseconds) ))
+);
+
+# Put the command to create a timer in the DSURF display list. #
+PROC instantiate_timer = (PIPE p, REF TIMER tm) VOID:
+(
+   SKIP
+);
+
+#  Update the appearance of a timer (which has no appearance). #
+PROC update_timer = (PIPE p, REF TIMER tm, STRING event) VOID:
+(
+   SKIP
+);
+
+# Set a timer. This starts (run=TRUE) or stops (run=FALSE) it. #
+PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF TIMER tm): (
+            (run | ds_start_timer(p, milliseconds OF tm) | ds_stop_timer(p))
+         )
+      OUT
+         put(stand error, (("set_timer(): Component [",tag,"] is not a TIMER.",newline)))
+      ESAC
+   FI
+);
+
+
 # ============ #
 # UI Internals #
 # ============ #
@@ -1415,7 +1517,8 @@ PROC instantiate = (PIPE p) VOID:
          (REF NUMERICDISPLAY nd): instantiate_numericdisplay(p, nd),
          (REF KNOB kb): instantiate_knob(p, kb),
          (REF SELECTOR sb): instantiate_selector(p, sb),
-         (REF KEYPAD kp): instantiate_keypad(p, kp)
+         (REF KEYPAD kp): instantiate_keypad(p, kp),
+         (REF TIMER tm): instantiate_timer(p, tm)
       ESAC
    OD;
 
@@ -1434,7 +1537,8 @@ PROC update_component = (PIPE p, ANYBUTTONREF component, STRING event, STRING su
       (REF RADIOBUTTON rb): update_radiobutton(p, rb, event, sub_tag),
       (REF KNOB kb): update_knob(p, kb, event),
       (REF SELECTOR sb): update_selector(p, sb, event),
-      (REF KEYPAD kp): update_keypad(p, kp, event, sub_tag)
+      (REF KEYPAD kp): update_keypad(p, kp, event, sub_tag),
+      (REF TIMER tm): update_timer(p, tm, event)
    ESAC
 );
 
@@ -1456,7 +1560,8 @@ PROC find_component = (STRING tag, REF USERPROC this_proc) INT:
          (REF NUMERICDISPLAY nd): (this_tag := tag OF nd; this_proc := null_proc),
          (REF KNOB kb): (this_tag := tag OF kb; this_proc := proc OF kb),
          (REF SELECTOR sb): (this_tag := tag OF sb; this_proc := proc OF sb),
-         (REF KEYPAD kp): (this_tag := tag OF kp; this_proc := proc OF kp)
+         (REF KEYPAD kp): (this_tag := tag OF kp; this_proc := proc OF kp),
+         (REF TIMER tm): (this_tag := tag OF tm; this_proc := proc OF tm)
       ESAC;
 
       # If the sought component, return the index of the component and this_proc for that. #
@@ -1510,7 +1615,9 @@ PROC run_event_loop = (PIPE p) VOID:
 
          # Find the component clicked from the tag in the event data. #
          USERPROC this_proc;
+         put(stand error, ("tag=",tag," event=",event," sub_tag=",sub_tag,newline));
          INT i_component := find_component(tag, this_proc);
+         put(stand error, ("i_component=",wint(i_component),newline));
          IF i_component /= 0
          THEN
             # Update the appearance of the component. Call its USERPROC, exit loop if that returns TRUE. #

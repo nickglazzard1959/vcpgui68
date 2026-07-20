@@ -75,6 +75,8 @@ typedef enum {
   CFG_sense_rect,                   // tag, x, y, sx, sy, events
   CFG_debug,                        // <none>
   CFG_remove,                       // x, y
+  CFG_start_timer,                  // ms
+  CFG_stop_timer,                   // <none>
   CFG_NOP                           // Do nothing. Used to nullify CFG commands once processed.
 } CMD_CODE;
 
@@ -117,7 +119,10 @@ typedef struct
   int x_down, y_down;      // Position of last down event.
 } SENSE_RECT;
 
-const int MXF = 5;         // Maximum number of loaded fonts.
+const int MXF = 5;               // Maximum number of loaded fonts.
+const int TIMER_NOT_SET = -1;    // Timer ID for timer not yet set (added).
+const int READ_THREAD_EVENT = 1; // Read thread generated USEREVENT.
+const int TIMER_EVENT = 2;       // Timer callback generated USEREVENT.
 
 typedef struct
 {
@@ -131,6 +136,7 @@ typedef struct
   std::vector<SENSE_RECT> sense_rects; // Areas in which we want to know about events.
   CMD_MAP cmdmap;          // Command name to code map.
   std::string fontdir;     // Where to look for TrueType fonts;
+  SDL_TimerID timer;       // Periodic event timer.
 } DRAW_STATE;
 
 typedef struct
@@ -139,6 +145,92 @@ typedef struct
   DISPLAY_LIST* dlist; // Display list.
   DISPLAY_LIST* olist; // Overlay display list.
 } THREAD_DATA;
+
+// Define a class to play a sound from a WAV file using SDL2 calls.
+#define MUS_PATH "/home/nick/gitprojects/vcpgui68/clicky.wav"
+class PlayWAVSound
+{
+public:
+  // Methods.
+
+  PlayWAVSound(const char* wav_file_name)
+  //-------------------------------------
+  // Constructor. Open a WAV file and an audio device to play it.
+  {
+    // Assume it didn't work. Usually a safe assumption ... :-)
+    ok = false;
+    wav_buffer = NULL;
+
+    // Try to open the WAV file and read its contents.
+    if( SDL_LoadWAV(wav_file_name, &wav_spec, &wav_buffer, &wav_length) != NULL ){
+
+      // We want to use the "queued audio" API, not callbacks.
+      wav_spec.callback = NULL;
+      wav_spec.userdata = NULL;
+
+      // Calculate how long the sample will play for in milliseconds.
+      bytes_per_sample = SDL_AUDIO_BITSIZE(wav_spec.format) / 8;
+      play_ms = (Uint32)((float)(wav_length * 1000.0f) / 
+                         (wav_spec.channels * bytes_per_sample * wav_spec.freq)) + 1;
+
+      // Open the audio device. Use device ID 1 only for now.
+      if( SDL_OpenAudio(&wav_spec, NULL) == 0 ){
+        
+        // Unpause the audio device.
+        SDL_PauseAudioDevice(1,0);
+
+        // Record that it worked.
+        ok = true;
+      }
+      else
+        fprintf(stderr, "PlayWAVSound(): SDL_OpenAudio() failed.\n");
+    }
+    else
+      fprintf(stderr, "PlayWAVSound(): SDL_LoadWAV(%s) failed.\n", wav_file_name);
+  };
+
+  ~PlayWAVSound()
+  //-------------
+  // Destructor. Close down SDL audio appropriately.
+  {
+    if( ok ){
+      SDL_CloseAudio();
+      if( wav_buffer != NULL )
+        SDL_FreeWAV(wav_buffer);
+    }
+  };
+
+  bool play( bool wait=false )
+  //--------------------------
+  // Play the audio sample from the WAV file named in the constructor.
+  {
+    if( ! ok )
+      return false;
+
+    SDL_ClearQueuedAudio(1);
+
+    // Queue the audio to play. 
+    if( SDL_QueueAudio(1, wav_buffer, wav_length) < 0 ){
+      fprintf(stderr, "SDL_QueueAudio failed: %s\n", SDL_GetError());
+      return false;
+    }
+    else{
+      // Wait long enough for the audio to finish playing. Or not.
+      if( wait )
+        SDL_Delay(play_ms);
+      return true;
+    }
+  };
+
+public:
+  // Data.
+  Uint32 wav_length;      // Length of the sound sample in bytes.
+  Uint8 *wav_buffer;      // Buffer containing the sound sample.
+  SDL_AudioSpec wav_spec; // Full data on the sample.
+  int bytes_per_sample;   // Bytes in a single sample.
+  Uint32 play_ms;         // Length of sample in milliseconds.
+  bool ok;                // Constructor worked.
+};
 
 // Forward declarations.
 void remove_from_display_list( DISPLAY_LIST* dlist,
@@ -231,8 +323,7 @@ int read_thread( void* data )
           sleep(200);
         }
         else
-          SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
-                          "Failed to fgets() from stdin. Giving up.\n");
+          SDL_Log("Client exited.\n");
         exit(1);
       };
     }
@@ -242,13 +333,30 @@ int read_thread( void* data )
     SDL_Event user_event;
     SDL_zero(user_event);
     user_event.type = SDL_USEREVENT;
-    user_event.user.code = 1;
+    user_event.user.code = READ_THREAD_EVENT;
     user_event.user.data1 = NULL;
     user_event.user.data2 = NULL;
     SDL_PushEvent(&user_event);
     
   } // eternal loop.
   return 0;
+}
+
+Uint32 timer_callback( Uint32 interval, void* userdata )
+//------------------------------------------------------
+// Called when the periodic event timer times out. Signal the
+// time out with a USEREVENT (thread safe). Cancel the timer.
+{
+    SDL_Event user_event;
+    SDL_zero(user_event);
+    user_event.type = SDL_USEREVENT;
+    user_event.user.code = TIMER_EVENT;
+    user_event.user.data1 = userdata;
+    user_event.user.data2 = NULL;
+    SDL_PushEvent(&user_event);
+
+    // Returning 0 "cancels" the timer, but I am unclear if this "removes" it too.
+    return 0;
 }
 
 std::vector<int> extract_int_args( std::string primdesc )
@@ -871,6 +979,23 @@ void exec_display_list_element( SDL_Renderer *renderer, DRAW_STATE *dstate, CMD_
   case CFG_remove:                   // x, y (handled in read_thread()).
     break;
 
+  case CFG_start_timer:              // ms
+    fprintf(stderr,"*** start timer\n");
+    if( dstate->timer != TIMER_NOT_SET ){
+      SDL_RemoveTimer(dstate->timer);
+      dstate->timer = TIMER_NOT_SET;
+    }
+    dstate->timer = SDL_AddTimer(args[0], timer_callback, dstate);
+    break;
+
+  case CFG_stop_timer:               // <none>
+    fprintf(stderr,"*** stop timer\n");
+    if( dstate->timer != TIMER_NOT_SET ){
+      SDL_RemoveTimer(dstate->timer);
+      dstate->timer = TIMER_NOT_SET;
+    }
+    break;
+
   case CFG_NOP:                      // <none>
     break;
   }
@@ -1103,6 +1228,7 @@ int main (int ArgCount, char **Args)
     dstate.fonts[i] = NULL;
   dstate.cur_font = 0;
   dstate.fontdir = "/usr/share/fonts/truetype/liberation2";
+  dstate.timer = TIMER_NOT_SET;
 
   // Command map.
   CMD_MAP cmdmap
@@ -1135,6 +1261,8 @@ int main (int ArgCount, char **Args)
       {"*sense_rect", {CFG_sense_rect, 4, 2}},
       {"*remove", {CFG_remove, 2, 0}},
       {"*debug", {CFG_debug, 0, 0}},
+      {"*start_timer", {CFG_start_timer, 1, 0}},
+      {"*stop_timer", {CFG_stop_timer, 0, 0}},
       {"*NOP", {CFG_NOP, 0, 0}}
     };
   dstate.cmdmap = cmdmap;
@@ -1155,7 +1283,7 @@ int main (int ArgCount, char **Args)
   CLI11_PARSE(app, ArgCount, Args);
 
   // Setup SDL.
-  if( SDL_Init(SDL_INIT_VIDEO) != 0 ){
+  if( SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_AUDIO) != 0 ){
     SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
                     "Unable to initialize SDL: %s", SDL_GetError());
     return 1;
@@ -1177,6 +1305,12 @@ int main (int ArgCount, char **Args)
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderClear(renderer);
   SDL_RenderPresent(renderer);
+
+  // Load a click sound.
+  PlayWAVSound sound(MUS_PATH);
+  if( ! sound.ok ){
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot open sound file: %s.\n", MUS_PATH);
+  }
 
   // Load a default font for TTF text into font 0.
   if( load_TTF_font("LiberationSans-Regular.ttf", 9, 0, dstate) != 0 ){
@@ -1250,15 +1384,21 @@ int main (int ArgCount, char **Args)
         int x = event.button.x;
         int y = event.button.y;
         if( event.type == SDL_MOUSEBUTTONDOWN ){
+          fprintf(stderr,"D");
           x_last_down = x;
           y_last_down = y;
         }
+        else
+          fprintf(stderr,"U");
         int sr_index = in_sense_rect(x, y, dstate.sense_rects,
                                      (event.type == SDL_MOUSEBUTTONDOWN) ? SR_DOWN_EVENT : SR_UP_EVENT,
                                      tag);
         if( sr_index >= 0 ){
+          fprintf(stderr,"F(%d)",sr_index);
           printf("%s,%s,%d,%d\n", tag.c_str(), (event.type == SDL_MOUSEBUTTONDOWN) ? "D" : "U", x, y);
           fflush(stdout);
+          if( event.type == SDL_MOUSEBUTTONDOWN )
+            sound.play();
         }
       } // Mouse button down/up.
 
@@ -1298,18 +1438,28 @@ int main (int ArgCount, char **Args)
         }
       } // Mouse wheel moved.
 
-      // User event sent when display list has been modified.
+      // User event sent when display list has been modified. Or the periodic time has timed out.
       // At this point, there may be non-graphical commands as well as things to draw.
       if (event.type == SDL_USEREVENT) {
 
-        // Redraw. I.e. process the display list, which may not update what is seen,
-        // unless fast_update. Always draw the "main" display list items, then the
-        // "overlay" list items (on top).
-        draw_display_list(renderer, &dlist, &dstate, cmdmap, true, false);
-        draw_display_list(renderer, &olist, &dstate, cmdmap, false, true);
-        if( dstate.fast_update )
-          SDL_RenderPresent(renderer);
-        drawn = true;
+        if( event.user.code == READ_THREAD_EVENT ){
+          // Redraw. I.e. process the display list, which may not update what is seen,
+          // unless fast_update. Always draw the "main" display list items, then the
+          // "overlay" list items (on top).
+          draw_display_list(renderer, &dlist, &dstate, cmdmap, true, false);
+          draw_display_list(renderer, &olist, &dstate, cmdmap, false, true);
+          if( dstate.fast_update )
+            SDL_RenderPresent(renderer);
+          drawn = true;
+        }
+        
+        else if( event.user.code == TIMER_EVENT ){
+          // Timer time out.
+          fprintf(stderr, "*** DING! ***\n");
+          printf("timer,O\n");
+          fflush(stdout);
+        }
+        
       } // user event
 
       // If there is another event, get it. Otherwise, exit event handling loop.
@@ -1351,6 +1501,8 @@ int main (int ArgCount, char **Args)
   }
   
   clean_up_texture_atlas(dstate.tex_atlas);
+  if( dstate.timer != TIMER_NOT_SET )
+    SDL_RemoveTimer(dstate.timer);
   SDL_DestroyRenderer(renderer);
   SDL_DestroyWindow(window);
   for( int i=0; i<MXF; i++ ){
