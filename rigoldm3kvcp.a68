@@ -1,11 +1,29 @@
+COMMENT
+rigoldm3kvcp.a68 - Virtual control panel for a Rigol DM3000 series multi-meter.
+===============================================================================
+
+This controls and displays meaurements from a Rigol DM3000 multi-meter on Linux
+using the USBTMC facilities available on that OS.
+
+The program runs under Algol 68 Genie and displays a custom GUI using SDL2.
+
+This software, including the GUI "library", utility code and test programs,
+comes to less than 7,500 lines of Algol 68 and C++ ... including comments ...
+
+Nick Glazzard 2026
+------------------
+COMMENT
+
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
 PR read "config_parser.a68" PR
 PR read "vcpgui.a68" PR
 PR read "rigol3kdmm.a68" PR
 
+# Some state. #
 STRING units := "V";
 STRING function := "DC";
+STRING rangestring := "Auto";
 BOOL sample_auto := TRUE;
 
 # Make a measurement. #
@@ -14,18 +32,20 @@ PROC read_measurement = VOID:
    REAL measurement;
    BOOL overload;
 
-   IF measure_dm3k(device, measurement, overload) = 0
+   IF measure_dm3k(device, measurement, overload)
    THEN
       INT i_measurement, dp := 0;
       STRING prefix;
-      BOOL ok := real_to_si_real_scaled(measurement, i_measurement, 8, prefix, dp, FALSE);
-      put(stand error, ("ok=",ok," overload=",overload," measurement=",measurement," dp=",wint(dp)));
-      (overload OR (NOT ok) | i_measurement := 99999999);
-      set_numericdisplay(dsurf_pipe, "display", i_measurement, dp, FALSE);
+      BOOL ok := real_to_si_real_scaled_dsurf(measurement, i_measurement, 8, prefix, dp, FALSE);
+      CO put(stand error, ("ok=",ok," overload=",overload," measurement=",measurement," dp=",wint(dp),newline)); CO
+      (overload | i_measurement := 99999999 | 
+            (NOT ok | i_measurement := 0)); # CONT and DIOD will by NOT ok ...  #
+      (dp = 8 | i_measurement %:= 10; dp -:=1); # Force a leading zero if all digits are decimal places. #
+      set_numericdisplay(dsurf_pipe, "display", i_measurement, dp, NOT ok);
       set_numericdisplay_units(dsurf_pipe, "display", prefix + units);
       set_numericdisplay_function(dsurf_pipe, "display", function);
-      ds_show_display(dsurf_pipe);
-      (sample_auto | put(stand error, ("SNOOZE",newline)); set_timer(dsurf_pipe, "timer", TRUE, FALSE))
+      set_numericdisplay_range(dsurf_pipe, "display", get_range_string_of_current_function(device));
+      ds_show_display(dsurf_pipe)
    FI
 );
 
@@ -40,7 +60,7 @@ PROC measure_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
             read_measurement
          )
       OUT
-         put(stand error, (("Expected a push button. Got something else!", new line)))
+         put(stand error, ("Expected a push button. Got something else!", new line))
       ESAC
    FI;
    FALSE
@@ -52,10 +72,11 @@ PROC timer_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    CASE state
    IN
       (REF TIMER tm): (
-         read_measurement
+         read_measurement;
+         set_timer(dsurf_pipe, "timer", TRUE, FALSE) # Restart the timer. #
       )
    OUT
-      put(stand error, (("Expected a timer. Got something else!", new line)))
+      put(stand error, ("Expected a timer. Got something else!", new line))
    ESAC;
    FALSE
 );
@@ -66,39 +87,102 @@ PROC sample_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    CASE state
    IN
       (REF RADIOBUTTON rb): (
-         ((which OF rb) = 1 | sample_auto := TRUE;  set_timer(dsurf_pipe, "timer", TRUE, FALSE));
-         ((which OF rb) = 2 | sample_auto := FALSE; set_timer(dsurf_pipe, "timer", FALSE, FALSE));
+         (get_radiobutton_sel_label(rb) = "AUTO" | sample_auto := TRUE;  set_timer(dsurf_pipe, "timer", TRUE, FALSE));
+         (get_radiobutton_sel_label(rb) = "MANUAL" | sample_auto := FALSE; set_timer(dsurf_pipe, "timer", FALSE, FALSE))
       )
    OUT
-      put(stand error, (("Expected a radio button. Got something else!", new line)))
+      put(stand error, ("Expected a radio button. Got something else!", new line))
    ESAC;
    FALSE
+);
+
+# Make the range auto/manual buttons match a newly selected function's state. #
+PROC update_auto = (REF DMKKK device) VOID:
+(
+   STRING which := ( get_range_code_of_current_function(device) = k_auto | "AUTO" | "MANUAL" );
+   VOID(set_radiobutton_by_label(dsurf_pipe, "range", which, FALSE))
 );
 
 # Change what is being measured. #
 PROC function_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
+   STRING ohm := REPR 222; # This gets converted to Unicode Omega (0x03a9) in DSURF. #
+   []STRING all_functions = ("DC","AC","DC","AC","OHM","OHM4","FREQ","PER","CONT","DIODE","CAP");
+   []STRING all_units = ("V","V","A","A",ohm,ohm,"Hz","s","","","F");
+   []STRING all_funcnames = ("DCV","ACV","DCI","ACI","OHM","OHM4","FREQ","PER","CONT","DIOD","CAP");
+
    CASE state
    IN
       (REF RADIOBUTTON rb): (
-         ((which OF rb) =  1 | function := "DC";    units := "V";   set_function_dm3k(device, "DCV"));
-         ((which OF rb) =  2 | function := "AC";    units := "V";   set_function_dm3k(device, "ACV"));
-         ((which OF rb) =  3 | function := "DC";    units := "A";   set_function_dm3k(device, "DCI"));
-         ((which OF rb) =  4 | function := "AC";    units := "A";   set_function_dm3k(device, "ACI"));
-         ((which OF rb) =  5 | function := "OHM";   units := "Ohm"; set_function_dm3k(device, "OHM"));
-         ((which OF rb) =  6 | function := "OHM4";  units := "Ohm"; set_function_dm3k(device, "OHM4"));
-         ((which OF rb) =  7 | function := "FREQ";  units := "Hz";  set_function_dm3k(device, "FREQ"));
-         ((which OF rb) =  8 | function := "PER";   units := "s";   set_function_dm3k(device, "PER"));
-         ((which OF rb) =  9 | function := "CONT";  units := "";    set_function_dm3k(device, "CONT"));
-         ((which OF rb) = 10 | function := "DIODE"; units := "";    set_function_dm3k(device, "DIOD"));
-         ((which OF rb) = 11 | function := "CAP";   units := "F";   set_function_dm3k(device, "CAP"));
+         function := all_functions[which OF rb];
+         units := all_units[which OF rb];
+         ieb(set_function_dm3k(device, all_funcnames[which OF rb]));
+         update_auto(device)
       )
    OUT
-      put(stand error, (("Expected a radio button. Got something else!", new line)))
+      put(stand error, ("Expected a radio button. Got something else!", new line))
    ESAC;
    FALSE
 );
 
+# Switch between automatic and manual range selection. #
+PROC range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   CASE state
+   IN
+      (REF RADIOBUTTON rb): (
+         (get_radiobutton_sel_label(rb) = "AUTO" | ieb(set_auto_range_dm3k(device)));
+         (get_radiobutton_sel_label(rb) = "MANUAL" | ieb(set_manual_range_dm3k(device)))
+      )
+   OUT
+      put(stand error, ("Expected a radio button. Got something else!", new line))
+   ESAC;
+   FALSE  
+);
+
+# Increment the current range if in manual range mode. #
+PROC inc_range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF PUSHBUTTON pb): (
+            ieb(inc_dec_range_dm3k(device, TRUE))
+         )
+      OUT
+         put(stand error, ("Expected a push button. Got something else!", new line))
+      ESAC
+   FI;
+   FALSE
+);
+
+# Decrement the current range if in manual range mode. #
+PROC dec_range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF PUSHBUTTON pb): (
+            ieb(inc_dec_range_dm3k(device, FALSE))
+         )
+      OUT
+         put(stand error, ("Expected a push button. Got something else!", new line))
+      ESAC
+   FI;
+   FALSE
+);
+
+
+# ============ #
+# MAIN PROGRAM #
+# ============ #
+
+STRING title := "Virtual control panel for a Rigol DM3000 series multi-meter. V0.1";
+print((newline,title,newline));
+print(((ELEMS title)*"=",newline));
+print(("Running under Algol 68 Genie 3.12.0",newline));
 
 # Parse command line arguments. These MUST appear after --. #
 REF ARG_PARSE arg_parser := make_arg_parser("Rigol DM3K Multimeter Virtual Control Panel");
@@ -109,7 +193,7 @@ REF INT device_number := arg_add_int_option(arg_parser, "-d", "--device",
       put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
 
 # Try to open the device before we do anything with the GUI. #
-REF DMKKK device := open_dm3k(device_number, FALSE);
+REF DMKKK device := open_dm3k(device_number, TRUE);
 (DEV_INVALID device | print(("Failed.",newline)); stop);
 
 # Open and configure the GUI display surface. #
@@ -127,12 +211,15 @@ ds_load_font(dsurf_pipe, "LiberationSans-Regular.ttf", 15, 1);
 ds_use_main(dsurf_pipe);
 ds_reset_display(dsurf_pipe);
 
+# Background ...  #
 ds_set_colour_rgba(dsurf_pipe, 50, 50, 50, 255);
 ds_clear(dsurf_pipe);
 
+# Numeric display ...  #
 ds_set_colour_rgba(dsurf_pipe, 180, 180, 180, 255);
-add_numericdisplay("display", width%2, 65, 123, 8, 0, TRUE);
+add_numericdisplay("display", width%2, 65, 0, 8, 0, TRUE);
 
+#  Function radiobutton ...  #
 ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
 ds_set_font(dsurf_pipe, 0);
 add_radiobutton("function", 
@@ -142,15 +229,17 @@ add_radiobutton("function",
 ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
 ds_text_in_font(dsurf_pipe, "FUNCTION", width%2, 165, TRUE, 0);
 
+# Range radiobutton and oush buttons ...  #
 ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
 add_radiobutton("range", 
                 "AUTO,MANUAL", 
-                null_proc, 75, 200, 1);
-add_pushbutton("uprange", "UP", null_proc, 150, 200);
-add_pushbutton("downrange", "DOWN", null_proc, 200, 200);
+                range_proc, 75, 200, 1);
+add_pushbutton("uprange", "UP", inc_range_proc, 150, 200);
+add_pushbutton("downrange", "DOWN", dec_range_proc, 200, 200);
 ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
 ds_text_in_font(dsurf_pipe, "RANGE", 125, 225, TRUE, 0);
 
+# Sample radiobutton and push button ...  #
 ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
 add_radiobutton("sample", 
                 "AUTO,MANUAL", 
@@ -159,23 +248,22 @@ add_pushbutton("measure", "MEAS", measure_proc, 400, 200);
 ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
 ds_text_in_font(dsurf_pipe, "SAMPLE", 350, 225, TRUE, 0);
 
+# Power off button ...  #
 ds_set_colour_rgba(dsurf_pipe, 200, 0, 0, 255);
 add_pushbutton("off", "OFF", quit_proc, width-50, 200);
 
+# Automatic measurement timer ...  #
 add_timer("timer", timer_proc, 2000);
 sample_auto := TRUE;
 set_timer(dsurf_pipe, "timer", TRUE, FALSE);
 
 # Set initial device state. #
-set_function_dm3k(device, "DCV");
+ieb(set_function_dm3k(device, "DCV"));
 
 # Create and run the GUI. #
 instantiate(dsurf_pipe);
-
 run_event_loop(dsurf_pipe);
 
 # Shut down. #
 end:
 close_dsurf(dsurf_pipe)
-
-

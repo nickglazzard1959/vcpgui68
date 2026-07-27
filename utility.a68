@@ -220,7 +220,7 @@ PROC ifromc = (STRING s, REF INT v, INT b, REF INT p) BOOL:
 );
 
 # String to real. If use_all_s, return status will be FALSE unless s has no trailing non-float chars. #
-# Otherwise, return staus will be TRUE if s is a valid representation of a floating point number.  #
+# Otherwise, return status will be TRUE if s is a valid representation of a floating point number.  #
 PROC string_to_real = (STRING s, REF REAL v, BOOL use_all_s) BOOL:
 (
    INT p := 1; # Start at the first character of s. #
@@ -287,19 +287,34 @@ PROC si_string_to_real = (STRING s, REF REAL v, REF STRING units) BOOL:
 # Convert a real number to a scaled real number with an appropriate SI prefix. #
 # If do_small is TRUE, use hecto, deca, deci and centi otherwise use only 10**3n prefixes. #
 # This is quite hard to get right, and I'm not certain I have in all cases! #
+
+# This variant uses u for micro prefix and is suitable for all output (command line, etc.). #
 PROC real_to_si_real = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small) BOOL:
+(
+   real_to_si_real_internal(v, v_out, prefix, do_small, FALSE)
+);
+
+# This variant uses an above 7 bit code for micro. DSURF will map this to Unicode for Greek mu. #
+PROC real_to_si_real_dsurf = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small, BOOL do_mu) BOOL:
+(
+   real_to_si_real_internal(v, v_out, prefix, do_small, TRUE)
+);
+
+# Do all the work. #
+PROC real_to_si_real_internal = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small, BOOL do_mu) BOOL:
 (
    BOOL retval := FALSE;
    prefix := "";
+   STRING mu := (do_mu | REPR 223 | "u");
 
    # If |v| is > 10**33 or < 10**-33, just return v. No defined prefixes for these. #
    (ABS(v) > 1.0E33 OR ABS(v) < 1.0E-33 | v_out := v; done);
 
-   # Define known prefix codes and associated powers of 10. #
+   # Define known prefix codes and associated powers of 10. Try to #
    MODE PREFIX_EXP = STRUCT(STRING prefix, INT exp);
    []PREFIX_EXP pe_table = (("Q", 30),("R", 27),("Y", 24),("Z", 21),("E", 18),
                             ("P", 15),("T", 12),("G",  9),("M",  6),("k",  3),
-                            ("m", -3),("u", -6),("n", -9),("p",-12),("f",-15),
+                            ("m", -3),(mu,  -6),("n", -9),("p",-12),("f",-15),
                             ("a",-18),("z",-21),("y",-24),("r",-27),("q",-30));
 
    []PREFIX_EXP sm_table = (("h",  2),("da", 1),("",   0),("d", -1),("c", -2));
@@ -371,11 +386,23 @@ PROC real_to_si_string = (REAL v, REF STRING s, INT width, after, BOOL do_small)
 PROC real_to_si_real_scaled = (REAL v, REF INT iv_out, INT n_digits, 
                                REF STRING prefix, REF INT dp, BOOL do_small) BOOL:
 (
+   real_to_si_real_scaled_internal(v, iv_out, n_digits, prefix, dp, do_small, FALSE) 
+);
+
+PROC real_to_si_real_scaled_dsurf = (REAL v, REF INT iv_out, INT n_digits, 
+                                     REF STRING prefix, REF INT dp, BOOL do_small) BOOL:
+(
+   real_to_si_real_scaled_internal(v, iv_out, n_digits, prefix, dp, do_small, TRUE)
+);
+
+PROC real_to_si_real_scaled_internal = (REAL v, REF INT iv_out, INT n_digits, 
+                                        REF STRING prefix, REF INT dp, BOOL do_small, BOOL do_mu) BOOL:
+(
    BOOL retval := FALSE;
    REAL v_out := 0.0;
    
    # Convert v to a number in the range [1 : 1000) with a prefix or [0 : 0.001] with no prefix. #
-   retval := real_to_si_real(v, v_out, prefix, do_small);
+   retval := real_to_si_real_internal(v, v_out, prefix, do_small, do_mu);
    (NOT retval | done);
 
    # See how many digits we have in the SI scaled real after the decimal point. #
@@ -520,7 +547,9 @@ PROC count_char_occurrences = (CHAR c, STRING s) INT:
 PROC begins_with = (STRING s, STRING b) BOOL:
 (
    BOOL retval := FALSE;
-   ((ELEMS s) >= (ELEMS b) | retval := s[:ELEMS b] = b);
+   (ELEMS b = 0 OR ELEMS s = 0 | done);
+   (ELEMS s >= ELEMS b | retval := s[:ELEMS b] = b);
+   done:
    retval
 );
 
@@ -673,6 +702,20 @@ PROC print_os_error = (STRING leader, INT ierror) VOID:
 (
    put(stand error, (leader + ": " + strerror(ierror), new line))
 );
+
+# If status /= 0, an internal error must have occurred. Abort. #
+PROC ie = (INT status) VOID:
+(
+   (status /= 0 | put(stand error, ("Internal error detected. Giving up.", new line)); stop)
+);
+
+# If status FALSE, an internal error must have occurred. Abort. #
+PROC ieb = (BOOL status) VOID:
+(
+   (NOT status | put(stand error, ("Internal error detected. Giving up.", new line)); stop)
+);
+
+
 
 # ------ #
 # TESTS. #

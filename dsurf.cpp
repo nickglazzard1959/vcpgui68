@@ -10,6 +10,7 @@
 //   sudo apt install libsdl2-gfx-dev
 //   sudo apt install libsdl2-ttf-dev
 //   sudo apt install libsdl2-image-dev
+//   CLI11.hpp (https://github.com/CLIUtils/CLI11, Releases page).
 //
 // Build:
 //   g++ -O0 -g dsurf.cpp -o dsurf -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image
@@ -323,7 +324,7 @@ int read_thread( void* data )
           sleep(200);
         }
         else
-          SDL_Log("Client exited.\n");
+          SDL_Log("Client exited.\n"); // Probably ...
         exit(1);
       };
     }
@@ -444,6 +445,24 @@ void send_sync()
   fflush(stdout);
 }
 
+inline const Uint16 remap_upper_128_to_unicode( const unsigned char c )
+//---------------------------------------------------------------------
+// Allow some use of Unicode characters (e.g. to get Omega for ohms).
+// Algol 68 Genie uses 8 bit values for characters, but some useful
+// Unicode characters are above 255. This is a very crude way to get
+// access to those characters, optionally remapping all REPRs above 127.
+{
+  static const unsigned char inchar8[] = {222,223}; // sizeof this is ELEMS count.
+  static const Uint16 outchar16[] = {0x03a9,0x03bc};
+  if( c > 127 ){
+    for( size_t i=0; i<sizeof(inchar8); i++ ){
+      if( c == inchar8[i] )
+        return outchar16[i];
+    }
+  }
+  return (Uint16)c;
+}
+
 int draw_text_ttf( SDL_Renderer* renderer,
                    TTF_Font* font,
                    int r, int g, int b,
@@ -453,9 +472,22 @@ int draw_text_ttf( SDL_Renderer* renderer,
                    int dy )
 //-----------------------------------------------
 // Draw a text string using a pre-loaded TrueType font.
+// This allows some limited (and very crude) use of non-ASCII Unicode characters.
 {
+  // Map to Unicode characters. Remarkably painful.
+  const char* chars8 = chars.c_str();
+  Uint16 chars16[256];
+  size_t slen = strlen(chars8);
+  if( slen > 255 )slen = 255;
+  //fprintf(stderr, "slen=%lu\n", slen);
+  for( size_t i=0; i<slen; i++ ){
+    // Signed vs. unsigned! Beware!
+    chars16[i] = remap_upper_128_to_unicode((unsigned char)(chars8[i] & 0xff));
+  }
+  chars16[slen] = 0;
+
   SDL_Color color = {clamp8(r), clamp8(g), clamp8(b)};
-  SDL_Surface* surface = TTF_RenderText_Blended(font, chars.c_str(), color);
+  SDL_Surface* surface = TTF_RenderUNICODE_Blended(font, chars16, color);
   SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
 
   int tex_w = 0;
@@ -980,7 +1012,7 @@ void exec_display_list_element( SDL_Renderer *renderer, DRAW_STATE *dstate, CMD_
     break;
 
   case CFG_start_timer:              // ms
-    fprintf(stderr,"*** start timer\n");
+    //fprintf(stderr,"*** start timer\n");
     if( dstate->timer != TIMER_NOT_SET ){
       SDL_RemoveTimer(dstate->timer);
       dstate->timer = TIMER_NOT_SET;
@@ -989,7 +1021,7 @@ void exec_display_list_element( SDL_Renderer *renderer, DRAW_STATE *dstate, CMD_
     break;
 
   case CFG_stop_timer:               // <none>
-    fprintf(stderr,"*** stop timer\n");
+    //fprintf(stderr,"*** stop timer\n");
     if( dstate->timer != TIMER_NOT_SET ){
       SDL_RemoveTimer(dstate->timer);
       dstate->timer = TIMER_NOT_SET;
@@ -1384,17 +1416,17 @@ int main (int ArgCount, char **Args)
         int x = event.button.x;
         int y = event.button.y;
         if( event.type == SDL_MOUSEBUTTONDOWN ){
-          fprintf(stderr,"D");
+          //fprintf(stderr,"D");
           x_last_down = x;
           y_last_down = y;
         }
-        else
-          fprintf(stderr,"U");
+        //else
+        //  fprintf(stderr,"U");
         int sr_index = in_sense_rect(x, y, dstate.sense_rects,
                                      (event.type == SDL_MOUSEBUTTONDOWN) ? SR_DOWN_EVENT : SR_UP_EVENT,
                                      tag);
         if( sr_index >= 0 ){
-          fprintf(stderr,"F(%d)",sr_index);
+          //fprintf(stderr,"F(%d)",sr_index);
           printf("%s,%s,%d,%d\n", tag.c_str(), (event.type == SDL_MOUSEBUTTONDOWN) ? "D" : "U", x, y);
           fflush(stdout);
           if( event.type == SDL_MOUSEBUTTONDOWN )
@@ -1455,7 +1487,7 @@ int main (int ArgCount, char **Args)
         
         else if( event.user.code == TIMER_EVENT ){
           // Timer time out.
-          fprintf(stderr, "*** DING! ***\n");
+          //fprintf(stderr, "*** DING! ***\n");
           printf("timer,O\n");
           fflush(stdout);
         }
@@ -1477,6 +1509,15 @@ int main (int ArgCount, char **Args)
       draw_display_list(renderer, &dlist, &dstate, cmdmap, true, false);
       draw_display_list(renderer, &olist, &dstate, cmdmap, false, true);
       SDL_RenderPresent(renderer);
+    }
+
+    if( dstate.debug_mode ){
+      fprintf(stderr, "CUR mn num_prims = %ld\n", dlist.prims.size());
+      fprintf(stderr, "CUR ov num_prims = %ld\n", olist.prims.size());
+      // Iterate over the display list.
+      for( int i=0; i<(int)olist.prims.size(); i++ ){
+        fprintf(stderr, "[%s]\n", olist.prims[i].c_str());
+      }
     }
  
   } // run loop.

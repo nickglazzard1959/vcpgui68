@@ -2,10 +2,25 @@ COMMENT
 rigol3kdmm.a68 - Routines for controlling a Rigol 3K series DMM over USBTMC.
 ============================================================================
 
-A small subset of commands (hopefully the most useful) for a Rigol DM3000
+A subset of commands (hopefully the most useful) for a Rigol DM3000
 series multi-meter are implemented. This has been tested with a DM3058E on
 Debian Linux.
 
+This uses the Rigol command set (the multi-meters also support Agilent and
+Fluke command sets - presumably as used by those brands). The Agilent set 
+seems very similar, so it might be easy to adapt this to work with Agilent
+devices. The Fluke set seems quite different, though.
+
+There are two "issues" which are not readily soluble:
+1. Opening the device quite often fails with "protocol error". This can be
+   worked round by unplugging and replugging the device. This happens with
+   a C++ test program too. This *may* be something specific to how Rigol
+   has implemented USBTMC ... there are threads on the Internet about this.
+2. If a measurement times out, communications become confused. This may
+   require powering the device off and on again. This only happens with
+   auto-ranged capacitance measurement though. It looks like USBTMC has a 
+   default timeout of 5 seconds. This can be adjusted with an ioctl(), but
+   we can't use that from Algol 68 Genie.
 
 Nick Glazzard 2026
 ------------------
@@ -13,7 +28,50 @@ COMMENT
 
 PR read "usbtmc.a68" PR
 
-MODE DMKKK = STRUCT( REF USBTMC device, STRING func, INT range, BOOL auto );
+# Try to keep as much information about the device as possible in a table. #
+# It turns out that the range is entirely function dependent - each function tracks its own range. #
+INT k_rn = 7;  # Maximum number of ranges for any function. #
+INT k_nn = 3;  # Maximum number of alternative names for any function. #
+MODE FUNCDESC = STRUCT( [k_nn]STRING names, STRING cmd, INT n_range, [k_rn]STRING rangenames, [k_rn]STRING resolutions );
+
+# Range codes are k_auto or an integer in the range 1 to n_range specific to a given function. #
+INT k_auto = -1;
+
+# Function codes are 1 to ELEMS dmkinfo  #
+INT k_dcv  = 1;
+INT k_acv  = 2;
+INT k_dci  = 3;
+INT k_aci  = 4;
+INT k_res  = 5;
+INT k_fres = 6;
+INT k_freq = 7;
+INT k_per  = 8;
+INT k_cont = 9;
+INT k_diod = 10;
+INT k_cap  = 11;
+INT k_nf = k_cap;
+
+# Function names and variants, base command string, valid range count, range string array, resolution string array. #
+[k_nf]FUNCDESC dmkinfo := (
+   (("DCV","",""), ":MEAS:VOLT:DC",   5, ("200mv","2V","20V","200V","1000V","",""), ("100nV","1uV","10uV","100uV","1mV","","")),
+   (("ACV","",""), ":MEAS:VOLT:AC",   5, ("200mv","2V","20V","200V","750V","",""), ("100nV","1uV","10uV","100uV","1mV","","")),
+   (("DCI","",""), ":MEAS:CURR:DC",   6, ("200uA","2mA","20mA","200mA","2A","10A",""), ("1nA","10nA","100nA","1uA","10uA","100uA","")),
+   (("ACI","",""), ":MEAS:CURR:AC",   4, ("20mA","200mA","2A","10A","","",""), ("100nA","1uA","10uA","100uA","","","")),
+   (("OHM","RES","2WR"), ":MEAS:RES",    7, ("200","2k","20k","200k","1M","10M","100M"), ("1u","10u","100u","1m","10m","100m","1")),
+   (("OHM4","FRES","4WR"), ":MEAS:FRES", 7, ("200","2k","20k","200k","1M","10M","100M"), ("1u","10u","100u","1m","10m","100m","1")),
+   (("FREQ","",""), ":MEAS:FREQ",     5, ("200mv","2V","20V","200V","750V","",""), ("100nV","1uV","10uV","100uV","1mV","","")),
+   (("PER","",""), ":MEAS:PER",       5, ("200mv","2V","20V","200V","750V","",""), ("100nV","1uV","10uV","100uV","1mV","","")),
+   (("CONT","",""), ":MEAS:CONT",     0, ("","","","","","",""), ("","","","","","","")),
+   (("DIOD","",""), ":MEAS:DIOD",     0, ("","","","","","",""), ("","","","","","","")),
+   (("CAP","",""), ":MEAS:CAP",       6, ("2n","20n","200n","2u","200u","10m",""), ("1f","10f","100f","1p","100p","1u",""))
+);
+
+# Current state of the device. Range must be tracked independently for each function. #
+MODE DMKKK = STRUCT( REF USBTMC device, INT i_func, [k_nf]INT i_range );
+
+# ===================== #
+# Device open and close #
+# ===================== #
 
 # Open a connection to a DM3K multi-meter on /dev/usbtmc<dev_no> #
 # The device MUST be attached, and r/w permissions MUST have been set on it #
@@ -25,7 +83,8 @@ PROC open_dm3k = (INT dev_no, BOOL reset) REF DMKKK:
    REF USBTMC device := device OF dev3k := open_usbtmc(dev_no);
    (NOT valid OF device | done);
 
-   dev3k := (device, "", -1, TRUE);
+   # Start off in DCV with auto-ranging on all functions. Should be correct after a reset. #
+   dev3k := (device, k_dcv, (k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto));
 
    # See if this (dev_no) looks like a Rigol DM3000. #
    STRING inquiry;
@@ -39,18 +98,24 @@ Open failed.", new line));
       done
    FI;
 
-   # Reset? #
-   (reset | VOID(put_usbtmc(device, "*RST")));
+   # Reset? If not, the instrument would have to be queried for current function and range. #
+   # Probably the ranges of all functions ... but there seems to be no way to know if auto  #
+   # or manual ranging is being used, so there is an issue here. Try switching to manual #
+   # ranging in that case. This may work for the current function, at least.  #
+   IF reset 
+   THEN
+      ie(put_usbtmc(device, "*RST"))
 
-   # Try to get the current function. #
-   func OF dev3k := get_function_dm3k(dev3k);
-   (func OF dev3k = "Query error." | 
-         VOID(close_usbtmc(device OF dev3k)); valid OF device OF dev3k := FALSE; done);
+   ELSE
+      # Get the current function from the device. #
+      (NOT get_function_dm3k(dev3k) | 
+            VOID(close_usbtmc(device OF dev3k)); valid OF device OF dev3k := FALSE; done);
 
-   # Try to get the current range. #
-   range OF dev3k := get_range_dm3k(dev3k);
-   (range OF dev3k = -1 |
-         VOID(close_usbtmc(device OF dev3k)); valid OF device OF dev3k := FALSE; done);
+      # Set manual ranging mode and get the range for the current function. #
+      (NOT set_manual_range_dm3k(dev3k) |
+            VOID(close_usbtmc(device OF dev3k)); valid OF device OF dev3k := FALSE; done)
+   FI;
+
    done:
    dev3k
 );
@@ -61,212 +126,366 @@ OP DEV_INVALID = (REF DMKKK dev3k) BOOL:
    NOT (valid OF device OF dev3k)
 );
 
-# Set what we what to measure. #
-PROC set_function_dm3k = (REF DMKKK dev3k, STRING function) INT:
+# Close the device. #
+PROC close_dm3k = (REF DMKKK dev3k) VOID:
 (
-   INT retval := 0;
-   REF USBTMC dev := device OF dev3k;
-   STRING despaced_upper_function := despace(string_to_upper(function));
-   
-   # Note that these function names match the start of the string returned by :FUNC? #
-   (begins_with(despaced_upper_function, "DCV"  ) | retval := put_usbtmc(dev, ":FUNC:VOLT:DC"); done);
-   (begins_with(despaced_upper_function, "ACV"  ) | retval := put_usbtmc(dev, ":FUNC:VOLT:AC"); done);
-   (begins_with(despaced_upper_function, "DCI"  ) | retval := put_usbtmc(dev, ":FUNC:CURR:DC"); done);
-   (begins_with(despaced_upper_function, "ACI"  ) | retval := put_usbtmc(dev, ":FUNC:CURR:AC"); done);
-   (begins_with(despaced_upper_function, "DCA"  ) | retval := put_usbtmc(dev, ":FUNC:CURR:DC"); done);
-   (begins_with(despaced_upper_function, "ACA"  ) | retval := put_usbtmc(dev, ":FUNC:CURR:AC"); done);
-   (begins_with(despaced_upper_function, "OHM"  ) | retval := put_usbtmc(dev, ":FUNC:RES"); done);
-   (begins_with(despaced_upper_function, "OHM4" ) | retval := put_usbtmc(dev, ":FUNC:FRES"); done);
-   (begins_with(despaced_upper_function, "RES"  ) | retval := put_usbtmc(dev, ":FUNC:RES"); done);
-   (begins_with(despaced_upper_function, "FRES" ) | retval := put_usbtmc(dev, ":FUNC:FRES"); done);
-   (begins_with(despaced_upper_function, "FREQ" ) | retval := put_usbtmc(dev, ":FUNC:FREQ"); done);
-   (begins_with(despaced_upper_function, "PER"  ) | retval := put_usbtmc(dev, ":FUNC:PER"); done);
-   (begins_with(despaced_upper_function, "CONT" ) | retval := put_usbtmc(dev, ":FUNC:CONT"); done);
-   (begins_with(despaced_upper_function, "DIOD" ) | retval := put_usbtmc(dev, ":FUNC:DIOD"); done);
-   (begins_with(despaced_upper_function, "CAP"  ) | retval := put_usbtmc(dev, ":FUNC:CAP"); done);
-
-   put(stand error, ("Unknown function requested: ", function, new line));
-   retval := earg;
-
-   # If a valid function was specified, get the set function back from the device. #
-   # This is needed to get the range the device has selected (or user has specified).  #
-   done:
-   (retval = 0 | retval := query_usbtmc(dev, ":FUNC?", func OF dev3k));
-   (func OF dev3k = "2WR" | func OF dev3k := "RES");   # Some oddities here! #
-   (func OF dev3k = "4WR" | func OF dev3k := "FRES");   
-   put(stand error, ("func OF dev3k = ",func OF dev3k,newline));
-   retval
+   (NOT DEV_INVALID dev3k | VOID(close_usbtmc(device OF dev3k)))
 );
 
-# Get the current function. This should be one of the following strings: #
-# DCV, ACV, DCI, ACI, RESISTANCE, CAPACITANCE, CONTINUITY, FRESISTANCE, #
-# DIODE, FREQUENCY, PERIOD  #
-PROC get_function_dm3k = (REF DMKKK dev3k) STRING:
-(
-   STRING retval := "";
-   REF USBTMC dev := device OF dev3k;
-   INT status := query_usbtmc(dev, ":FUNC?", retval);
-   (status /= 0 | retval := "Query error." | func OF dev3k := retval);
-   retval
-);
+# ==================== #
+# Function get and set #
+# ==================== #
 
-# Get the range as an integer from the instrument. The required command is function dependent. #
-PROC get_range_dm3k = (REF DMKKK dev3k) INT:
-(
-   STRING strange := "-1";
-   INT status := 0;
-   INT range := -1;
-   REF USBTMC dev := device OF dev3k;
-   (begins_with(func OF dev3k, "DCV"  ) | status := query_usbtmc(dev, ":MEAS:VOLT:DC:RANG?", strange); done);
-   (begins_with(func OF dev3k, "ACV"  ) | status := query_usbtmc(dev, ":MEAS:VOLT:AC:RANG?", strange); done);
-   (begins_with(func OF dev3k, "DCI"  ) | status := query_usbtmc(dev, ":MEAS:CURR:DC:RANG?", strange); done);
-   (begins_with(func OF dev3k, "ACI"  ) | status := query_usbtmc(dev, ":MEAS:CURR:AC:RANG?", strange); done);
-   (begins_with(func OF dev3k, "RES"  ) | status := query_usbtmc(dev, ":MEAS:RES:RANG?", strange); done);
-   (begins_with(func OF dev3k, "FRES" ) | status := query_usbtmc(dev, ":MEAS:FRES:RANG?", strange); done);
-   (begins_with(func OF dev3k, "FREQ" ) | status := query_usbtmc(dev, ":MEAS:FREQ:RANG?", strange); done);
-   (begins_with(func OF dev3k, "PER"  ) | status := query_usbtmc(dev, ":MEAS:PER:RANG?", strange); done);
-   (begins_with(func OF dev3k, "CAP"  ) | status := query_usbtmc(dev, ":MEAS:CAP:RANG?", strange); done);
-
-   done:
-   (status = 0 | range := string_to_int(strange); range OF dev3k := range);
-   range
-);
-
-# Set the range for the current function. #
-PROC set_range_dm3k = (REF DMKKK dev3k, INT range) INT:
-(
-   INT status := 0;
-   REF USBTMC dev := device OF dev3k;
-
-   # Find the valid range codes for the current function. #
-   INT min_range := -1, max_range := -1;
-   (begins_with(func OF dev3k, "DCV"  ) | min_range := 0; max_range := 4; got_min_max);
-   (begins_with(func OF dev3k, "ACV"  ) | min_range := 0; max_range := 4; got_min_max);
-   (begins_with(func OF dev3k, "DCI"  ) | min_range := 0; max_range := 5; got_min_max);
-   (begins_with(func OF dev3k, "ACI"  ) | min_range := 0; max_range := 3; got_min_max);
-   (begins_with(func OF dev3k, "RES"  ) | min_range := 0; max_range := 6; got_min_max);
-   (begins_with(func OF dev3k, "FRES" ) | min_range := 0; max_range := 6; got_min_max);
-   (begins_with(func OF dev3k, "FREQ" ) | min_range := 0; max_range := 4; got_min_max);
-   (begins_with(func OF dev3k, "PER"  ) | min_range := 0; max_range := 4; got_min_max);
-   (begins_with(func OF dev3k, "CAP"  ) | min_range := 0; max_range := 5; got_min_max);
-
-   put(stand error, ("Current function is invalid: ", func OF dev3k, new line));
-   status := earg;
-   done;
-   
-   # Check range code is valid. #
-   got_min_max:
-   (range < min_range OR range > max_range | 
-         put(stand error, ("Range code: ",range, " is invalid for current function: ", 
-                           func OF dev3k, new line)); 
-         status := earg; 
-         done);
-
-   # Set range mode to MANUAL. #
-   status := put_usbtmc(dev, ":MEAS MANU"); 
-   (status /= 0 |  put(stand error, ("Failed to set range mode to MANUAL.", new line)); done);
-   auto OF dev3k := FALSE;
-
-   # Set the desired range. #
-   (begins_with(func OF dev3k, "DCV"  ) | status := put_usbtmc(dev, ":MEAS:VOLT:DC "+wint(range)); done);
-   (begins_with(func OF dev3k, "ACV"  ) | status := put_usbtmc(dev, ":MEAS:VOLT:AC "+wint(range)); done);
-   (begins_with(func OF dev3k, "DCI"  ) | status := put_usbtmc(dev, ":MEAS:CURR:DC "+wint(range)); done);
-   (begins_with(func OF dev3k, "ACI"  ) | status := put_usbtmc(dev, ":MEAS:CURR:AC "+wint(range)); done);
-   (begins_with(func OF dev3k, "RES"  ) | status := put_usbtmc(dev, ":MEAS:RES "+wint(range)); done);
-   (begins_with(func OF dev3k, "FRES" ) | status := put_usbtmc(dev, ":MEAS:FRES "+wint(range)); done);
-   (begins_with(func OF dev3k, "FREQ" ) | status := put_usbtmc(dev, ":MEAS:FREQ "+wint(range)); done);
-   (begins_with(func OF dev3k, "PER"  ) | status := put_usbtmc(dev, ":MEAS:PER "+wint(range)); done);
-   (begins_with(func OF dev3k, "CAP"  ) | status := put_usbtmc(dev, ":MEAS:CAP "+wint(range)); done);
-
-   done:
-   (status = 0 | range OF dev3k := range | put(stand error, ("Failed to set range.", new line)));
-   status
-);
-
-# Set auto-ranging mode. #
-PROC set_autorange_dm3k = (REF DMKKK dev3k) INT:
-(
-   REF USBTMC dev := device OF dev3k;
-   INT status := put_usbtmc(dev, ":MEAS AUTO"); 
-   (status /= 0 |  put(stand error, ("Failed to set range mode to AUTO.", new line)); done);
-   auto OF dev3k := TRUE;
-   done:
-   status
-);
-
-# Make a measurement of the quantity defined by the current function. #
-PROC measure_dm3k = (REF DMKKK dev3k, REF REAL value, REF BOOL overload) INT:
-(
-   STRING stvalue := "-1";
-   INT status := 0;
-   REF USBTMC dev := device OF dev3k;
-   (begins_with(func OF dev3k, "DCV"  ) | status := query_usbtmc(dev, ":MEAS:VOLT:DC?", stvalue); done);
-   (begins_with(func OF dev3k, "ACV"  ) | status := query_usbtmc(dev, ":MEAS:VOLT:AC?", stvalue); done);
-   (begins_with(func OF dev3k, "DCI"  ) | status := query_usbtmc(dev, ":MEAS:CURR:DC?", stvalue); done);
-   (begins_with(func OF dev3k, "ACI"  ) | status := query_usbtmc(dev, ":MEAS:CURR:AC?", stvalue); done);
-   (begins_with(func OF dev3k, "RES"  ) | status := query_usbtmc(dev, ":MEAS:RES?", stvalue); done);
-   (begins_with(func OF dev3k, "FRES" ) | status := query_usbtmc(dev, ":MEAS:FRES?", stvalue); done);
-   (begins_with(func OF dev3k, "FREQ" ) | status := query_usbtmc(dev, ":MEAS:FREQ?", stvalue); done);
-   (begins_with(func OF dev3k, "PER"  ) | status := query_usbtmc(dev, ":MEAS:PER?", stvalue); done);
-   (begins_with(func OF dev3k, "CAP"  ) | status := query_usbtmc(dev, ":MEAS:CAP?", stvalue); done);
-
-   done:
-   (status = 0 | ( NOT string_to_real(stvalue, value, FALSE) | status := earg ) );
-   overload := (ABS(value) > 8E15); # Overload seems to be signalled by 9E15. #
-   status
-);
-
-# Convert a number to a range code relevant to a given function. #
-PROC value_to_range_code = (STRING func_name, REAL value) INT:
+# Identify func as an acceptable function name and return the function code for that. #
+PROC func_to_i_func = (STRING func) INT:
 (
    INT retval := -1;
 
-   # Table of maximum values for each range of each function. #
-   [][]REAL code_max = ( (0.2, 2.0, 20.0, 200.0, 1000.0), # DC Volts #
-                         (0.2, 2.0, 20.0, 200.0,  750.0), # AC Volts #
-                         (0.0002, 0.002, 0.02, 0.2, 2.0, 10.0), # DC Amps #
-                         (0.02, 0.2, 2.0, 10.0), # AC Amps #
-                         (200.0, 2 000.0, 20 000.0, 200 000.0, 1 000 000.0, 10 000 000.0, 100 000 000.0), # Oh #
-                         (200.0, 2 000.0, 20 000.0, 200 000.0, 1 000 000.0, 10 000 000.0, 100 000 000.0), # ms #
-                         (0.2, 2.0, 20.0, 200.0,  750.0), # Freq AC V #
-                         (0.2, 2.0, 20.0, 200.0,  750.0), # Period AC V #
-                         (2.0, 20.0, 200.0, 2 000.0, 200 000.0,  10 000 000.0) ); # Capacitance nF. #
-   
-   []STRING func_names = ("DCV","ACV","DCI","ACI","RES","FRES","FREQ","PER","CAP");
-
-   # Find the table relevant to func_name then find index of first table value > value. #
-   FOR i TO ELEMS func_names
+   FOR i TO k_nf
    DO
-      IF begins_with(func_name, func_names[i])
-      THEN
-         FOR j TO ELEMS code_max[i]
-         DO
-            (code_max[i][j] > value | retval := j; done)
-         OD;
-
-         # Return top most index if value is over range. #
-         retval := ELEMS code_max[i];
-         done
-      FI
+      FOR j TO k_nn
+      DO
+         (begins_with(func, (names OF dmkinfo[i])[j]) | retval := i; done)
+      OD
    OD;
 
    done:
-   (retval = -1 | 
-         put(stand error, ("Invalid function name supplied to value_to_range_code(): ", func_name, new line));
-         retval := 0 );
-   retval - 1
+   retval
 );
 
-# Set the range for the current function by specifying the maximum expected value to be measured. #
-PROC set_range_for_value_dm3k = (REF DMKKK dev3k, REAL value) INT:
+# Output informative message when the function code is invalid. #
+PROC invalid_i_func = (REF DMKKK dev3k, STRING caller) VOID:
 (
-   INT retval := 0;
-   INT range_code := value_to_range_code(func OF dev3k, value);
-   (range_code < 0 | retval := earg; done);
-   retval := set_range_dm3k(dev3k, range_code);
+   put(stand error, ("Invalid i_func found in ", caller, new line))
+);
+
+# Get the current function from the device and set i_func in dev3k appropriately. #
+# The device should return one of the following strings: #
+# DCV, ACV, DCI, ACI, RESISTANCE, CAPACITANCE, CONTINUITY, FRESISTANCE, #
+# DIODE, FREQUENCY, PERIOD, but there appear to be some variations with resistance. #
+# Return TRUE if OK, else FALSE. #
+PROC get_function_dm3k = (REF DMKKK dev3k) BOOL:
+(
+   BOOL retval := FALSE;
+   (DEV_INVALID dev3k | done);
+   STRING response;
+   INT i_func;
+   REF USBTMC dev := device OF dev3k;
+
+   # Get the current function from the device. #
+   INT status := query_usbtmc(dev, ":FUNC?", response);
+
+   # If all is well, set our record of the current function. #
+   (status = 0 | i_func := func_to_i_func(response); # Convert function string to code. #
+                 (i_func < 0 | # Invalid function code. #
+                       invalid_i_func(dev3k, "get_function"); done | 
+                          retval := TRUE; i_func OF dev3k := i_func)); # Valid function code.  #
    done:
    retval
 );
+
+# Set what we what to measure. #
+PROC set_function_dm3k = (REF DMKKK dev3k, STRING function) BOOL:
+(
+   BOOL retval := FALSE;
+   (DEV_INVALID dev3k | done);
+   REF USBTMC dev := device OF dev3k;
+   STRING despaced_upper_function := despace(string_to_upper(function));
+
+   # Identify the requested function. #
+   INT new_i_func := func_to_i_func(despaced_upper_function);
+   (new_i_func < 0 | put(stand error, ("Unknown function requested: ", function, new line)); done);
+
+   # Convert the MEAS command for the new function to a FUNC command.  #
+   STRING cmd := cmd OF dmkinfo[new_i_func];
+   cmd[2:5] := "FUNC";
+
+   # Set the new function in the instrument. #
+   INT status := put_usbtmc(dev, cmd);
+   (status /= 0 | put(stand error, ("Failed to set function.", new line)); done);
+   i_func OF dev3k := new_i_func;
+
+   # Get the range for the function from the device then record it UNLESS there is auto ranging set on that function.  #
+   INT queried_code;
+   (NOT get_range_dm3k(dev3k, FALSE, queried_code) | done); 
+   
+   # It all worked. #
+   retval := TRUE;
+
+   done:
+   retval
+);
+
+# ================= #
+# Range get and set #
+# ================= #
+
+# Get the range for the current function from the device and set i_range[i_func] in devk  #
+# to the value obtained. Only do this if i_func is NOT currently auto ranging unless override_auto. #
+# Return the range code reported by the device in queried_code. #
+# Return TRUE if OK, else FALSE. #
+PROC get_range_dm3k = (REF DMKKK dev3k, BOOL override_auto, REF INT queried_code) BOOL:
+(
+   BOOL retval := FALSE; # Set all output values before we can return. #
+   queried_code := 0;
+   (DEV_INVALID dev3k | done);
+   STRING response;
+   INT i_func;
+   REF USBTMC dev := device OF dev3k;
+
+   # Check current function is valid. #
+   ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "get_range"); done);
+
+   # The DIOD and CONT functions have no associated (useful) ranges. Return code 1 and TRUE for them. #
+   ( (i_func OF dev3k) = k_diod OR (i_func OF dev3k) = k_cont | queried_code := 1; retval := TRUE; done);
+
+   # Get the range code for the current function from the device. #
+   INT status := query_usbtmc(dev, cmd OF dmkinfo[i_func OF dev3k]+":RANG?", response);
+   IF status = 0
+   THEN
+      # Set the queried code. Conditionally update our record of the range code for the current function. #
+      queried_code := string_to_int(response) + 1;
+      (((i_range OF dev3k)[i_func OF dev3k] /= k_auto) OR override_auto | (i_range OF dev3k)[i_func OF dev3k] := queried_code);
+      retval := TRUE
+   FI;
+
+   done:
+   retval
+);
+
+# Given a range code for the current function, convert it to a range string relevant to that function. #
+PROC range_code_to_range_string = (REF DMKKK dev3k, INT range_code) STRING:
+(
+   range_code_to_range_string_func(dev3k, i_func OF dev3k, range_code)
+);
+
+# Given a range code for a specified function, convert it to a range string relevant to that function. #
+PROC range_code_to_range_string_func = (REF DMKKK dev3k, INT i_func, INT range_code) STRING:
+(
+   STRING retval := "-----";
+   (DEV_INVALID dev3k | done);
+
+   # Check current function is valid. And the supplied range code wrt that function. #
+   ( i_func < 1 OR i_func > k_nf | invalid_i_func(dev3k, "range_code_to_range_string"); done);
+   ( range_code /= k_auto AND (range_code < 1 OR range_code > n_range OF dmkinfo[i_func]) | done);
+   
+   # Look up the range string. Or output "Auto" if in k_auto. #
+   retval := (range_code = k_auto | "Auto" | (rangenames OF dmkinfo[i_func])[range_code]);
+
+   done:
+   retval
+);
+
+# Given a range code for the current function, convert it to a resolution string relevant to that function. #
+PROC range_code_to_resolution_string = (REF DMKKK dev3k, INT range_code) STRING:
+(
+   range_code_to_resolution_string_func(dev3k, i_func OF dev3k, range_code)
+);
+
+# Given a range code for the current function, convert it to a resolution string relevant to that function. #
+PROC range_code_to_resolution_string_func = (REF DMKKK dev3k, INT i_func, INT range_code) STRING:
+(
+   STRING retval := "-----";
+   (DEV_INVALID dev3k | done);
+
+   # Check current function is valid. And the supplied range code wrt that function. #
+   ( i_func < 1 OR i_func > k_nf | invalid_i_func(dev3k, "range_code_to_range_string"); done);
+   ( range_code < 1 OR range_code > n_range OF dmkinfo[i_func] | done);
+   
+   # Look up the range string. #
+   retval := (resolutions OF dmkinfo[i_func])[range_code];
+
+   done:
+   retval
+);
+
+# Get the range code of the currently selected function. #
+PROC get_range_code_of_current_function = (REF DMKKK dev3k) INT:
+(
+   (i_range OF dev3k)[i_func OF dev3k]
+);
+
+# Get the range string of the currently selected function. #
+PROC get_range_string_of_current_function = (REF DMKKK dev3k) STRING:
+(
+   range_code_to_range_string(dev3k, get_range_code_of_current_function(dev3k))
+);
+
+
+# Set manual ranging for the current function and get the range for that function. #
+PROC set_manual_range_dm3k = (REF DMKKK dev3k) BOOL:
+(
+   BOOL retval := FALSE;
+   (DEV_INVALID dev3k | done);
+   REF USBTMC dev := device OF dev3k;
+
+   # Tell the device to enter manual ranging mode for the current function. #
+   INT status := put_usbtmc(dev, ":MEAS MANU"); 
+   (status /= 0 |  put(stand error, ("Failed to set range mode to MANUAL.", new line)); done);
+
+   # Get the range code from the device and set our record of this, possibly replacing k_auto  #
+   INT queried_range;
+   retval := get_range_dm3k(dev3k, TRUE, queried_range);
+
+   done:
+   retval
+);
+
+# Set auto-ranging mode for the current function. #
+PROC set_auto_range_dm3k = (REF DMKKK dev3k) BOOL:
+(
+   BOOL retval := FALSE;
+   (DEV_INVALID dev3k | done);
+   REF USBTMC dev := device OF dev3k;
+
+   # Check current function is valid. #
+   ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "set_auto_range"); done);
+
+   # Tell the device to enter auto ranging mode for the current function. #
+   INT status := put_usbtmc(dev, ":MEAS AUTO"); 
+   (status = 0 | retval := TRUE | put(stand error, ("Failed to set range mode to AUTO.", new line)); done);
+
+   # Set our record of the raange for this function to k_auto. #
+   (i_range OF dev3k)[i_func OF dev3k] := k_auto;
+
+   done:
+   retval
+);
+
+# Set the range for the current function to a specified range code (function dependent). #
+PROC set_range_dm3k = (REF DMKKK dev3k, INT range) BOOL:
+(
+   BOOL retval := FALSE;
+   (DEV_INVALID dev3k | done);
+   REF USBTMC dev := device OF dev3k;
+
+   # If range is k_auto, let  set_auto_range_dm3k() do the work. #
+   (range = k_auto | retval := set_auto_range_dm3k(dev3k); done);
+
+   # Check current function is valid. #
+   ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "set_range"); done);
+
+   # Find the valid range codes for the current function. CONT and DIOD functions have no ranges. #
+   INT max_range := n_range OF dmkinfo[i_func OF dev3k];
+   (max_range = 0 | retval := TRUE; done);
+   
+   # Check range code is valid. #
+   (range < 1 OR range > max_range | 
+         put(stand error, ("Range code: ", range, " is invalid for current function.", new line)); 
+         done);
+
+   # Set range mode to MANUAL. #
+   (NOT set_manual_range_dm3k(dev3k) |
+         put(stand error, ("Failed to set range mode to MANUAL.", new line)); done);
+
+   # Set the desired range. #
+   STRING cmd := cmd OF dmkinfo[i_func OF dev3k];
+   INT status := put_usbtmc(dev, cmd+" "+wint(range-1));
+
+   # Update the range code for the function. #
+   (status = 0 | (i_range OF dev3k)[i_func OF dev3k] := range; retval := TRUE
+      | put(stand error, ("Failed to set range.", new line)));
+   
+   done:
+   retval
+);
+
+# Increment (inc=TRUE) or decrement the range code and set that range. Clamp at valid code limits. #
+PROC inc_dec_range_dm3k = (REF DMKKK dev3k, BOOL inc) BOOL:
+(
+   BOOL retval := FALSE;
+   (DEV_INVALID dev3k | done);
+
+   # Check current function is valid. #
+   ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "inc_dec_range"); done);
+
+   # Only do anything if in manual range mode on the current function. #
+   ((i_range OF dev3k)[i_func OF dev3k] = k_auto | retval := TRUE; done);
+
+   # Find the valid range codes for the current function. CONT and DIOD functions have no ranges. #
+   INT max_range := n_range OF dmkinfo[i_func OF dev3k];
+   (max_range = 0 | retval := TRUE; done);
+
+   # Get the next higher or lower valid range code for the function and set it in the device.  #
+   INT next_range := clamp_int( (i_range OF dev3k)[i_func OF dev3k] + (inc | 1 | -1), 1, max_range);
+   retval := set_range_dm3k(dev3k, next_range);
+
+   done:
+   retval
+);
+
+# Set the range for the current function to one suitable for measuring up to value. #
+PROC set_range_by_maximum_value_dm3k = (REF DMKKK dev3k, REAL value) BOOL:
+(
+   BOOL retval := FALSE;
+   (DEV_INVALID dev3k | done);
+
+   # Check current function is valid. #
+   ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "set_range_by_maximum_value"); done);
+
+   # Find the valid range codes for the current function. CONT and DIOD functions have no ranges. #
+   INT max_range := n_range OF dmkinfo[i_func OF dev3k];
+   (max_range = 0 | retval := TRUE; done);
+
+   # Convert range strings for i_func to real numbers in range_maximum. #
+   STRING units;
+   REAL range_maximum;
+   INT range_code := -1;
+   FOR i TO max_range
+   DO
+      STRING range_string := (rangenames OF dmkinfo[i_func OF dev3k])[i];
+      (NOT si_string_to_real(range_string, range_maximum, units) | 
+            put(stand error, ("Failed to convert range string to real.", new line)); done);
+
+      # If value is less than range_maximum, this is a suitable range. #
+      ( value < range_maximum | range_code := i; break )
+   OD;
+
+   # Was it found? If value is too big, use max_range anyway. #
+   break:
+   ( range_code < 0 | range_code := max_range );
+
+   # Set range by range code. #
+   retval := set_range_dm3k(dev3k, range_code);
+
+   done:
+   retval
+);
+
+# ======= #
+# Measure #
+# ======= #
+
+# Make a measurement of the quantity defined by the current function. #
+PROC measure_dm3k = (REF DMKKK dev3k, REF REAL value, REF BOOL overload) BOOL:
+(
+   BOOL retval := FALSE;
+   value := 0.0;
+   overload := FALSE;
+   (DEV_INVALID dev3k | done);
+   REF USBTMC dev := device OF dev3k;
+
+   # Check current function is valid. #
+   ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "measure"); done);
+
+   # The DIOD and CONT functions have no associated (useful) measurements. Return 0 and TRUE for them. #
+   ( (i_func OF dev3k) = k_diod OR (i_func OF dev3k) = k_cont | value := 0.0; retval := TRUE; done);
+
+   # Form the measurement command and get a string value measurement. #
+   STRING cmd := cmd OF dmkinfo[i_func OF dev3k] + "?";
+   STRING stvalue := "-1";
+   INT status := query_usbtmc(dev, cmd, stvalue);
+
+   # Convert the string measurement to a real number. Test for OVERLOAD. #
+   (status /= 0 | done);
+   (NOT string_to_real(stvalue, value, FALSE) | done ); 
+   overload := (ABS(value) > 8E15); # Overload seems to be signalled by 9E15. #
+   retval := TRUE;
+   
+   done:
+   retval
+);
+
 
 # ------ #
 # TESTS. #
@@ -274,36 +493,131 @@ PROC set_range_for_value_dm3k = (REF DMKKK dev3k, REAL value) INT:
 
 IF FALSE
 THEN
-REF DMKKK device := open_dm3k(2, FALSE);
-(DEV_INVALID device | print(("Failed.",newline)); stop);
+REF DMKKK dev := open_dm3k(2, TRUE);
+(DEV_INVALID dev | put(stand error, ("Open failed.", new line)); stop);
 
-print(("Function on open = ", get_function_dm3k(device), new line));
-
-print((set_function_dm3k(device, "AC VOLTS"), new line));
-
-print(("Current range: ", get_range_dm3k(device), new line));
-
-print((set_range_dm3k(device, 0), new line));
-
-print(("New current range: ", get_range_dm3k(device), new line));
-
-REAL value;
+REAL value := 0.0;
 BOOL overload;
-print((measure_dm3k(device, value, overload), new line));
-print(("Manual Value = ", value, " Overload? ", overload, new line));
 
-print((set_autorange_dm3k(device)));
-print((measure_dm3k(device, value, overload), new line));
-print(("Auto Value = ", value, " Overload? ", overload, new line));
+print(("DC voltage measurement quick test (x3)",newline));
+print(("---------------------------------------",newline));
+FOR i TO 3 
+DO
+(measure_dm3k(dev, value, overload) | print(("[",value,"] over:",overload,new line)) | print(("Failed.", new line)); stop)
+OD;
 
-print((set_range_for_value_dm3k(device, 800), new line));
+print((newline,"All functions quick test.",newline));
+print((        "-------------------------",newline));
+FOR i TO k_nf
+DO
+   STRING func_name := (names OF dmkinfo)[i][1];
+   IF i /= k_cap # Capacitance measurements seem to time out if no capacitor, and unplugging and/or power cycling is then needed! #
+   THEN
+      (NOT set_function_dm3k(dev, func_name) | put(stand error, ("Sel ", func_name, " func failed.",newline)); stop);
+      (measure_dm3k(dev, value, overload) | print(("... [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+      INT queried_code;
+      (get_range_dm3k(dev, FALSE, queried_code) | 
+            print(("... device range = ",wint(queried_code),new line)) | print(("Failed gr.", new line)); stop);
+      print(("... Instrument range string = ", range_code_to_range_string(dev, queried_code), new line));
+      print(("... Resolution string = ", range_code_to_resolution_string(dev, queried_code), new line))
+   FI
+OD;
 
-print((measure_dm3k(device, value, overload), new line));
-print(("Manual Value (range by value 800) = ", value, " Overload? ", overload, new line));
+print((newline,"Range switching test.",newline));
+print((        "---------------------",newline));
 
-print((set_range_for_value_dm3k(device, 0.1), new line));
+# Set manual ranges on DCV and OHM. #
+(NOT set_function_dm3k(dev, "DCV") | put(stand error, ("Sel DCV func failed.",newline)); stop);
+(NOT set_range_dm3k(dev, 5) | put(stand error, ("Set DCV range failed.",newline)); stop | print(("Set DCV to range 5",newline)));
 
-print((measure_dm3k(device, value, overload), new line));
-print(("Manual Value (range by value 0.1) = ", value, " Overload? ", overload, new line))
+(NOT set_function_dm3k(dev, "OHM") | put(stand error, ("Sel OHM func failed.",newline)); stop);
+(NOT set_range_dm3k(dev, 5) | put(stand error, ("Set OHM range failed.",newline)); stop | print(("Set OHM to range 5",newline)));
 
+# Display our record of the ranges set.  #
+print((newline,"Recorded ranges after setting range 5 on DCV and OHM.",newline));
+FOR i TO k_nf
+DO
+   STRING func_name := (names OF dmkinfo)[i][1];
+   STRING range_name := range_code_to_range_string_func(dev, i, (i_range OF dev)[i]);
+   print(("Function: ", func_name, " Range:", range_name, new line))
+OD;
+
+# Do some measurements. #
+print((newline,"Measure DCV, ACV and OHM.",newline));
+(NOT set_function_dm3k(dev, "DCV") | put(stand error, ("Sel DCV func failed.",newline)); stop);
+(measure_dm3k(dev, value, overload) | print(("... DCV [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+(NOT set_function_dm3k(dev, "ACV") | put(stand error, ("Sel ACV func failed.",newline)); stop);
+(measure_dm3k(dev, value, overload) | print(("... ACV [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+(NOT set_function_dm3k(dev, "OHM") | put(stand error, ("Sel OHM func failed.",newline)); stop);
+(measure_dm3k(dev, value, overload) | print(("... OHM [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+
+# ----- #
+
+# Set auto ranges on DCV and OHM again. #
+(NOT set_function_dm3k(dev, "DCV") | put(stand error, ("Sel DCV func failed.",newline)); stop);
+(NOT set_range_dm3k(dev, k_auto) | put(stand error, ("Set DCV range failed.",newline)); stop | print(("Set DCV to auto range",newline)));
+
+(NOT set_function_dm3k(dev, "OHM") | put(stand error, ("Sel OHM func failed.",newline)); stop);
+(NOT set_range_dm3k(dev, k_auto) | put(stand error, ("Set OHM range failed.",newline)); stop | print(("Set OHM to auto range",newline)));
+
+# Set ACV to range 5. #
+(NOT set_function_dm3k(dev, "ACV") | put(stand error, ("Sel ACV func failed.",newline)); stop);
+(NOT set_range_dm3k(dev, 5) | put(stand error, ("Set ACV range failed.",newline)); stop | print(("Set ACV to range 5",newline)));
+
+# Display our record of the ranges set, again. #
+print((newline,"Recorded ranges after setting range 5 on ACV, auto on DCV and OHM.",newline));
+FOR i TO k_nf
+DO
+   STRING func_name := (names OF dmkinfo)[i][1];
+   STRING range_name := range_code_to_range_string_func(dev, i, (i_range OF dev)[i]);
+   print(("Function: ", func_name, " Range:", range_name, new line))
+OD;
+
+# Do some measurements, again. #
+print((newline,"Measure DCV, ACV and OHM.",newline));
+(NOT set_function_dm3k(dev, "DCV") | put(stand error, ("Sel DCV func failed.",newline)); stop);
+(measure_dm3k(dev, value, overload) | print(("... DCV [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+(NOT set_function_dm3k(dev, "ACV") | put(stand error, ("Sel ACV func failed.",newline)); stop);
+(measure_dm3k(dev, value, overload) | print(("... ACV [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+(NOT set_function_dm3k(dev, "OHM") | put(stand error, ("Sel OHM func failed.",newline)); stop);
+(measure_dm3k(dev, value, overload) | print(("... OHM [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+
+# ----- #
+
+# Set manual range by value on DCV. #
+(NOT set_function_dm3k(dev, "DCV") | put(stand error, ("Sel DCV func failed.",newline)); stop);
+(NOT set_range_by_maximum_value_dm3k(dev, 150.0) | put(stand error, ("Set DCV range by value failed.",newline)); stop | 
+      print(("Set DCV to range for 150V",newline)));
+
+# Display our record of the ranges set, again. #
+print((newline,"Recorded ranges after setting 150V range on DCV.",newline));
+FOR i TO k_nf
+DO
+   STRING func_name := (names OF dmkinfo)[i][1];
+   STRING range_name := range_code_to_range_string_func(dev, i, (i_range OF dev)[i]);
+   print(("Function: ", func_name, " Range:", range_name, new line))
+OD;
+
+# Do some measurements, again. #
+print((newline,"Measure DCV.",newline));
+(NOT set_function_dm3k(dev, "DCV") | put(stand error, ("Sel DCV func failed.",newline)); stop);
+(measure_dm3k(dev, value, overload) | print(("... DCV [",value,"] over:",overload,new line)) | print(("Failed ms.", new line)); stop);
+
+# ----- #
+
+# Increment DCV once. #
+print((newline,"Increment DCV range.",newline));
+(NOT inc_dec_range_dm3k(dev, TRUE) | put(stand error, ("Inc DCV func failed.",newline)); stop);
+STRING range_name := range_code_to_range_string_func(dev, k_dcv, (i_range OF dev)[k_dcv]);
+print(("Recorded range on DCV now: ",range_name,newline));
+
+# Decrement DCV twice. #
+print((newline,"Decrement DCV range twice.",newline));
+(NOT inc_dec_range_dm3k(dev, FALSE) | put(stand error, ("Dec DCV func failed.",newline)); stop);
+(NOT inc_dec_range_dm3k(dev, FALSE) | put(stand error, ("Dec DCV func failed.",newline)); stop);
+range_name := range_code_to_range_string_func(dev, k_dcv, (i_range OF dev)[k_dcv]);
+print(("Recorded range on DCV now: ",range_name,newline));
+
+done:
+close_dm3k(dev)
 FI;

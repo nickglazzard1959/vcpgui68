@@ -73,7 +73,7 @@ PROC sync_dsurf = (PIPE p, STRING s) VOID:
    STRING s := read_dsurf(p);
    WHILE s /= "SYNC"
    DO
-      put(stand error, ("^^^^ DISCARDED ^^^^",newline));
+      CO put(stand error, ("^^^^ DISCARDED ^^^^",newline)); CO
       s := read_dsurf(p)
    OD
 );
@@ -87,7 +87,7 @@ PROC read_dsurf = ( PIPE p ) STRING:
 (
    STRING instring := "";
    get(read OF p, (instring, new line));
-   put(stand error, ("[",instring,"]",new line));
+   CO put(stand error, ("[",instring,"]",new line)); CO
    instring
 );
 
@@ -160,7 +160,7 @@ PROC ds_reset_display = ( PIPE p ) VOID:
 # Show display (swap buffers) #
 PROC ds_show_display = ( PIPE p ) VOID:
 (
-   put(stand error, ("==== SYNC REQ ====", new line));
+   CO put(stand error, ("==== SYNC REQ ====", new line)); CO
    write_dsurf(p, "$*show_display_sync$")
    CO sync_dsurf(p, "show_display") CO
 );
@@ -339,7 +339,7 @@ PROC ds_sense_rect = ( PIPE p, STRING tag, STRING event_mask, INT x, y, sx, sy, 
    DO
       IF NOT char in string(event_mask[i], NIL, valid_event_chars)
       THEN
-         put(stand error, (("ds_sense_rect(): Invalid character in event_mask (",event_mask[i],")",new line)));
+         put(stand error, ("ds_sense_rect(): Invalid character in event_mask (",event_mask[i],")",new line));
          done
       FI
    OD;
@@ -395,7 +395,7 @@ MODE SELECTOR = STRUCT( STRING tag, STRING labels, USERPROC proc, INT x, y, INT 
 MODE KEYPAD = STRUCT( STRING tag, USERPROC proc, INT x, y, INT ivalue, isign, idp, STRING ndtag,
                       INT old_ivalue, old_isign, old_idp, RGBACOLOUR c );
 MODE NUMERICDISPLAY = STRUCT( STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup,
-                              STRING units, STRING function, RGBACOLOUR c );
+                              STRING units, STRING function, STRING range, RGBACOLOUR c );
 MODE TIMER = STRUCT( STRING tag, USERPROC proc, INT milliseconds );
 
 MODE ANYBUTTONREF = UNION(REF PUSHBUTTON, REF TOGGLEBUTTON, REF RADIOBUTTON, REF NUMERICDISPLAY,
@@ -411,7 +411,7 @@ MODE SELECTOR_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE KEYPAD_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE NUMERICDISPLAY_LAYOUT = STRUCT( INT width, INT height, INT downscale, INT bezel_width );
 
-# Default component metrics, overriddem by TAL file specifications. #
+# Default component metrics, overridden by TAL file specifications. #
 PUSHBUTTON_LAYOUT pushbutton_metrics := (100, 64, 2);
 TOGGLEBUTTON_LAYOUT togglebutton_metrics := (100, 64, 2);
 RADIOBUTTON_LAYOUT radiobutton_metrics := (100, 64, 2);
@@ -520,7 +520,7 @@ PROC set_pushbutton = (PIPE p, STRING tag, BOOL callproc) VOID:
             (callproc | VOID((proc OF pb) (tag, "D", components[i_component])))
          )
       OUT
-         put(stand error, (("set_pushbutton(): Component [",tag,"] is not a PUSHBUTTON.",newline)))
+         put(stand error, ("set_pushbutton(): Component [",tag,"] is not a PUSHBUTTON.",newline))
       ESAC
    FI
 );
@@ -598,7 +598,7 @@ PROC set_togglebutton = (PIPE p, STRING tag, BOOL on_or_off, BOOL callproc) VOID
             FI
          )
       OUT
-         put(stand error, (("set_togglebutton(): Component [",tag,"] is not a TOGGLEBUTTON.",newline)))
+         put(stand error, ("set_togglebutton(): Component [",tag,"] is not a TOGGLEBUTTON.",newline))
       ESAC
    FI
 );
@@ -664,13 +664,13 @@ PROC update_radiobutton = (PIPE p, REF RADIOBUTTON rb, STRING event, STRING sub_
       STRING r_sub_tag := sub_tag; # sub_tag cannot be changed, but gets() might (it won't). #
       INT new_which;
       gets(r_sub_tag, new_which);
-      put(stand error, ("new_which=",wint(new_which)," old=",wint(which OF rb),newline));
+      CO put(stand error, ("new_which=",wint(new_which)," old=",wint(which OF rb),newline)); CO
       []STRING label_array = split_string(labels OF rb, ",");
 
       # If it isn't the one already set, update. #
       IF new_which /= (which OF rb)
       THEN
-         put(stand error, ("change",newline));
+         CO put(stand error, ("change",newline)); CO
          push_dstate;
          ds_set_colour_rgba_struct(p, c OF rb);
 
@@ -697,6 +697,13 @@ PROC update_radiobutton = (PIPE p, REF RADIOBUTTON rb, STRING event, STRING sub_
    FI # down event. #
 );
 
+# Get the label of the currently selected button. #
+PROC get_radiobutton_sel_label = (REF RADIOBUTTON rb) STRING:
+(
+   []STRING label_array = split_string(labels OF rb, ",");
+   label_array[which OF rb]
+);
+
 # Set the state of a radio button. Optionally call its USERPROC. #
 PROC set_radiobutton = (PIPE p, STRING tag, INT which, BOOL callproc) VOID:
 (
@@ -713,14 +720,45 @@ PROC set_radiobutton = (PIPE p, STRING tag, INT which, BOOL callproc) VOID:
                # Explicitly cast BOOL return of USERPROC to VOID to prevent compiler complaining. #
                (callproc | VOID((proc OF rb) (tag, "D", components[i_component])))
             ELSE
-               put(stand error, (("set_radiobutton(): Button number must be in range 1 to ",
-                                  wint(n_buttons OF rb),newline)))
+               put(stand error, ("set_radiobutton(): Button number must be in range 1 to ",
+                                  wint(n_buttons OF rb),newline))
             FI
          )
       OUT
-         put(stand error, (("set_radiobutton(): Component [",tag,"] is not a RADIOBUTTON.",newline)))
+         put(stand error, ("set_radiobutton(): Component [",tag,"] is not a RADIOBUTTON.",newline))
       ESAC
    FI
+);
+
+# Set a radiobutton by locating a specified label in the sub-buttons. Return FALSE if label not found. #
+PROC set_radiobutton_by_label = (PIPE p, STRING tag, STRING label, BOOL callproc) BOOL:
+(
+   BOOL retval := FALSE;
+
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF RADIOBUTTON rb): (
+            []STRING label_array = split_string(labels OF rb, ",");
+            FOR i TO ELEMS label_array
+            DO
+               IF label_array[i] = label
+               THEN
+                  set_radiobutton(p, tag, i, callproc);
+                  retval := TRUE;
+                  done
+               FI
+            OD;
+            put(stand error, ("set_radiobutton_by_label(): Label [",label,"] not found for component [",tag,"].",new line))
+         )
+      OUT
+         put(stand error, ("set_radiobutton_by_label(): Component [",tag,"] is not a RADIOBUTTON.",newline))
+      ESAC
+   FI;
+   done:
+   retval
 );
 
 # --------------- #
@@ -739,7 +777,7 @@ PROC read_numericdisplay_metrics = (STRING talfile) VOID:
 PROC make_numericdisplay = (STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup) REF NUMERICDISPLAY:
 (
    REF NUMERICDISPLAY new = HEAP NUMERICDISPLAY;
-   new := (tag, x, y, value, n_digits, n_dps, lz_sup, "", "", c OF dstate);
+   new := (tag, x, y, value, n_digits, n_dps, lz_sup, "", "", "", c OF dstate);
    new
 );
 
@@ -852,6 +890,16 @@ PROC instantiate_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd) VOID:
       ds_set_font(p, 0)
    FI;
 
+   # If a range string has been set, draw it. #
+   IF range OF nd /= "" 
+   THEN
+      ds_set_colour_rgba(p, 255, 199, 20, 255);
+      ds_set_font(p, 0); # Use font 0 to draw. #
+      ds_text_in_font(p, range OF nd, 
+                      (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
+                      yc, TRUE, 0)
+   FI;
+
    pop_dstate
 );
 
@@ -886,6 +934,30 @@ PROC update_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd, INT value, INT n_dp
       ds_remove_at(p, xcc, ycc)
    FI;
 
+   # Remove the units string, if there is one. #
+   IF units OF nd /= "" 
+   THEN
+      ds_remove_at(p,
+                   (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
+                   yc - (y2 - y1) % 4)
+   FI;
+
+   # Remove the function string, if there is one. #
+   IF function OF nd /= "" 
+   THEN
+      ds_remove_at(p,
+                   (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
+                   yc + (y2 - y1) % 4)
+   FI;
+
+   # Remove the range string, if there is one. #
+   IF range OF nd /= "" 
+   THEN
+      ds_remove_at(p,
+                   (x OF nd) + array_width % 2 - digit_width + digit_width % 2, 
+                   yc)
+   FI;
+
    # Update state. #
    value OF nd := value;
    n_dps OF nd := n_dps;
@@ -905,7 +977,7 @@ PROC set_numericdisplay = (PIPE p, STRING tag, INT value, INT n_dps, BOOL lz_sup
       IN
          (REF NUMERICDISPLAY nd): (update_numericdisplay(p, nd, value, n_dps, lz_sup))
       OUT
-         put(stand error,(("set_numericdisplay(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+         put(stand error,("set_numericdisplay(): Component [",tag,"] is not a NUMERICDISPLAY.",newline))
       ESAC
    FI
 );
@@ -919,12 +991,12 @@ PROC set_numericdisplay_real = (PIPE p, STRING tag, REAL rvalue, INT n_dps, BOOL
       CASE components[i_component]
       IN
          (REF NUMERICDISPLAY nd): (
-            put(stand error, ("*** n_dps = ",wint(n_dps)));
+            CO put(stand error, ("*** n_dps = ",wint(n_dps))); CO
             INT value := ROUND (10**n_dps * rvalue);
             update_numericdisplay(p, nd, value, n_dps, lz_sup)
          )
       OUT
-         put(stand error,(("set_numericdisplay_real(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+         put(stand error,("set_numericdisplay_real(): Component [",tag,"] is not a NUMERICDISPLAY.",newline))
       ESAC
    FI
 );
@@ -941,7 +1013,7 @@ PROC set_numericdisplay_units = (PIPE p, STRING tag, STRING units) VOID:
             update_numericdisplay(p, nd, value OF nd, n_dps OF nd, lz_sup OF nd)
          )
       OUT
-         put(stand error,(("set_numericdisplay_units(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+         put(stand error,("set_numericdisplay_units(): Component [",tag,"] is not a NUMERICDISPLAY.",newline))
       ESAC
    FI
 );
@@ -958,7 +1030,24 @@ PROC set_numericdisplay_function = (PIPE p, STRING tag, STRING function) VOID:
             update_numericdisplay(p, nd, value OF nd, n_dps OF nd, lz_sup OF nd)
          )
       OUT
-         put(stand error,(("set_numericdisplay_function(): Component [",tag,"] is not a NUMERICDISPLAY.",newline)))
+         put(stand error,("set_numericdisplay_function(): Component [",tag,"] is not a NUMERICDISPLAY.",newline))
+      ESAC
+   FI
+);
+
+PROC set_numericdisplay_range = (PIPE p, STRING tag, STRING range) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF NUMERICDISPLAY nd): (
+            range OF nd := range;
+            update_numericdisplay(p, nd, value OF nd, n_dps OF nd, lz_sup OF nd)
+         )
+      OUT
+         put(stand error,("set_numericdisplay_function(): Component [",tag,"] is not a NUMERICDISPLAY.",newline))
       ESAC
    FI
 );
@@ -1079,7 +1168,7 @@ PROC set_knob = (PIPE p, STRING tag, REAL vnew, BOOL callproc) VOID:
             (callproc | VOID((proc OF kb) (tag, "A,"+wint(angle), components[i_component])))
          )
       OUT
-         put(stand error, (("set_knob(): Component [",tag,"] is not a KNOB.",newline)))
+         put(stand error, ("set_knob(): Component [",tag,"] is not a KNOB.",newline))
       ESAC
    FI
 );
@@ -1243,7 +1332,7 @@ PROC set_selector = (PIPE p, STRING tag, INT inew, BOOL callproc) VOID:
             (callproc | VOID((proc OF sb) (tag, "A,"+wint(angle), components[i_component])))
          )
       OUT
-         put(stand error, (("set_selector(): Component [",tag,"] is not a SELECTOR.",newline)))
+         put(stand error, ("set_selector(): Component [",tag,"] is not a SELECTOR.",newline))
       ESAC
    FI
 );
@@ -1280,7 +1369,7 @@ PROC instantiate_keypad = (PIPE p, REF KEYPAD kp) VOID:
    []STRING label_array = ("7","8","9","SET", "4","5","6","OLD", "1","2","3","DEL", ".","0","CHS","NEW");
    INT button_height := (height OF keypad_metrics) % (downscale OF keypad_metrics);
    INT button_width := (width OF keypad_metrics) % (downscale OF keypad_metrics);
-   put(stand error, ("button w/h = ",button_width,button_height,newline));
+   CO put(stand error, ("button w/h = ",button_width,button_height,newline)); CO
    INT array_width := 4 * button_width;
    INT array_height := 4 * button_height;
    INT xc := (x OF kp) - array_width % 2;
@@ -1319,7 +1408,7 @@ PROC get_keypad = (PIPE p, STRING tag) REAL:
             value := get_keypad_internal(kp)
          )
       OUT
-         put(stand error, (("get_keypad(): Component [",tag,"] is not a KEYPAD.",newline)))
+         put(stand error, ("get_keypad(): Component [",tag,"] is not a KEYPAD.",newline))
       ESAC
    FI;
    value
@@ -1359,7 +1448,7 @@ PROC update_keypad = (PIPE p, REF KEYPAD kp, STRING event, STRING sub_tag) VOID:
    THEN
       # Find which of the keypad buttons has been pressed. #
       INT new_digit = key_to_int( string_to_int(sub_tag) );
-      put(stand error, ("sub_tag = ",sub_tag," digit = ",wint(new_digit),newline));
+      CO put(stand error, ("sub_tag = ",sub_tag," digit = ",wint(new_digit),newline)); CO
       IF new_digit >= 0
       THEN
          (ivalue OF kp < (max int % 10) | ivalue OF kp := 10 * ivalue OF kp + new_digit);
@@ -1372,7 +1461,7 @@ PROC update_keypad = (PIPE p, REF KEYPAD kp, STRING event, STRING sub_tag) VOID:
          (new_digit = old_key | restore_keypad(kp));
          (new_digit = set_key | save_keypad(kp))
       FI;
-      put(stand error, ("*** value = ", get_keypad_internal(kp), newline));
+      CO put(stand error, ("*** value = ", get_keypad_internal(kp), newline)); CO
       (ndtag OF kp /= "" | set_numericdisplay_real(p, ndtag OF kp, 
                                                    get_keypad_internal(kp), max2int(0, idp OF kp), TRUE);
                            ds_show_display(p))
@@ -1398,45 +1487,9 @@ PROC set_keypad = (PIPE p, STRING tag, REAL value, INT ndp, BOOL callproc) VOID:
             (callproc | VOID((proc OF kp) (tag, "D,0", components[i_component])))
          )
       OUT
-         put(stand error, (("set_keypad(): Component [",tag,"] is not a KEYPAD.",newline)))
+         put(stand error, ("set_keypad(): Component [",tag,"] is not a KEYPAD.",newline))
       ESAC
    FI
-);
-
-# Get texture metric information for texture key from a texture atlas file from_file. #
-PROC get_metric_info = ( STRING from_file, STRING key, REF []INT values ) INT:
-(
-   INT n_items := 0;
-   BOOL eof := FALSE;
-   PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
-   FOR i TO ELEMS values DO values[i] := 0 OD;
-   FILE fin;
-   IF open_file(from_file, "r", fin) /= 0
-   THEN
-      put(stand error, (("Failed to open: ",from_file," for read.",new line)))
-   ELSE
-      STRING input_line;
-      on file end(fin, at_eof);
-      DO
-         get(fin, (input_line, new line)); (eof | file_end);
-         IF ((ELEMS input_line > 2) | (input_line[1:2] = "##") | FALSE)
-         THEN
-            []STRING words = split_string(input_line, " ");
-            IF trim(words[1]) = key
-            THEN
-               n_items := min2int(ELEMS words - 1, ELEMS values);
-               FOR i FROM 1 TO n_items   
-               DO
-                  values[i] := string_to_int(words[i+1])
-               OD;
-               file_end
-            FI
-         FI
-      OD;
-      file_end:
-      close(fin)
-   FI;
-   n_items
 );
 
 
@@ -1482,7 +1535,7 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
             (run | ds_start_timer(p, milliseconds OF tm) | ds_stop_timer(p))
          )
       OUT
-         put(stand error, (("set_timer(): Component [",tag,"] is not a TIMER.",newline)))
+         put(stand error, ("set_timer(): Component [",tag,"] is not a TIMER.",newline))
       ESAC
    FI
 );
@@ -1491,6 +1544,42 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 # ============ #
 # UI Internals #
 # ============ #
+
+# Get texture metric information for texture key from a texture atlas file from_file. #
+PROC get_metric_info = ( STRING from_file, STRING key, REF []INT values ) INT:
+(
+   INT n_items := 0;
+   BOOL eof := FALSE;
+   PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
+   FOR i TO ELEMS values DO values[i] := 0 OD;
+   FILE fin;
+   IF open_file(from_file, "r", fin) /= 0
+   THEN
+      put(stand error, ("Failed to open: ",from_file," for read.",new line))
+   ELSE
+      STRING input_line;
+      on file end(fin, at_eof);
+      DO
+         get(fin, (input_line, new line)); (eof | file_end);
+         IF ((ELEMS input_line > 2) | (input_line[1:2] = "##") | FALSE)
+         THEN
+            []STRING words = split_string(input_line, " ");
+            IF trim(words[1]) = key
+            THEN
+               n_items := min2int(ELEMS words - 1, ELEMS values);
+               FOR i FROM 1 TO n_items   
+               DO
+                  values[i] := string_to_int(words[i+1])
+               OD;
+               file_end
+            FI
+         FI
+      OD;
+      file_end:
+      close(fin)
+   FI;
+   n_items
+);
 
 # Read component metrics from a texture atlas file. #
 PROC read_component_metrics = (STRING talfile) VOID:
@@ -1615,9 +1704,9 @@ PROC run_event_loop = (PIPE p) VOID:
 
          # Find the component clicked from the tag in the event data. #
          USERPROC this_proc;
-         put(stand error, ("tag=",tag," event=",event," sub_tag=",sub_tag,newline));
+         CO put(stand error, ("tag=",tag," event=",event," sub_tag=",sub_tag,newline)); CO
          INT i_component := find_component(tag, this_proc);
-         put(stand error, ("i_component=",wint(i_component),newline));
+         CO put(stand error, ("i_component=",wint(i_component),newline)); CO
          IF i_component /= 0
          THEN
             # Update the appearance of the component. Call its USERPROC, exit loop if that returns TRUE. #
@@ -1630,4 +1719,3 @@ PROC run_event_loop = (PIPE p) VOID:
    end_event_loop:
    SKIP
 );
-
