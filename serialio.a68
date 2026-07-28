@@ -1,0 +1,136 @@
+COMMENT
+serialio.a68 - Routines for reading and writing serial lines via the serialio.cpp helper program.
+=================================================================================================
+
+There is no way to configure serial devices directly from a68g, but this is fairly easy to
+work around using a helper program written in C++, then communicating with that helper program
+using pipes.
+
+Nick Glazzard 2026
+------------------
+COMMENT
+
+PR read "utility.a68" PR
+
+# Run serialio returning a pair of pipes connected to its stdin and stdout. #
+# The devname arg is a device name, such as /dev/ttyACM0. The config arg may #
+# be an empty string for the defaults, or a four part string of the form: #
+# <baud>,<size>,<parity>,<stop>, such as 9600,8,N,1 (this is the default). #
+PROC open_serial = (STRING devname, STRING config, REF PIPE serp) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # Define valid options. #
+   STRING valid_baud = "50,75,110,134,150,200,300,600,1200,1800,2400,4800,9600,19200,38400,57600,\
+115200,230400,460800,500000,576000,921600,1000000,1152000,1500000,2000000";
+   STRING valid_size = "8,7,6,5";
+   STRING valid_parity = "N,E,O";
+   STRING valid_stop = "1,2";
+
+   # devname must be an extant character device. #
+   (NOT file is char device(devname) | 
+         put(stand error, ("Cannot find device: ",devname,newline));
+         done);
+
+   # We must be able to read and write to it. #
+   BITS permissions := file mode(devname) AND 8r777;
+   IF permissions /= 8r666
+   THEN
+      put(stand error, ("Device file: ", devname," does not have 0666 permissions. \
+Check UDEV rules or sudo chmod 666 it.", new line));
+      done
+   FI;
+
+   # Get a config string, then parse it. #
+   STRING use_config := (config /= "" | config | "9600,8,N,1");
+   []STRING confopts = split_string(use_config, ",");
+   (ELEMS confopts /= 4 | 
+         put(stand error, ("Expected 4 part config string, e.g. 9600,8,N,1. Got ",use_config,newline));
+         done);
+   (NOT check_valid(confopts[1], valid_baud) | 
+         put(stand error, ("Baud rate ",confopts[1]," is invalid.",newline));
+         done);
+   (NOT check_valid(confopts[2], valid_size) | 
+         put(stand error, ("Char size ",confopts[2]," is invalid.",newline));
+         done);
+   (NOT check_valid(confopts[3], valid_parity) | 
+         put(stand error, ("Parity ",confopts[3]," is invalid.",newline));
+         done);
+   (NOT check_valid(confopts[4], valid_stop) | 
+         put(stand error, ("Stop bits ",confopts[4]," is invalid.",newline));
+         done);
+
+   # Run serialio and return the pipe needed to talk to it. #
+   PIPE serial_pipe := execve child pipe("./serialio", ("serialio", 
+                                                        "--device", devname,
+                                                        "--baud", confopts[1],
+                                                        "--bits", confopts[2],
+                                                        "--parity", confopts[3],
+                                                        "--stop", confopts[4]), 
+                                         "");
+   IF pid OF serial_pipe = 0
+   THEN
+      put(stand error, ("open_serial(): Failed to create child process ", new line));
+      done
+   FI;
+   serp := serial_pipe;
+   retval := TRUE;
+
+   done:
+   retval
+);
+
+PROC close_serial = (PIPE p) VOID:
+(
+   close(read OF p);
+   close(write OF p)
+);
+
+# Write a single character to serial. #
+PROC write_serial_char = (PIPE p, CHAR outchar) VOID:
+   put(write OF p, (outchar));
+
+# Write string followed by a newline to serial. #
+PROC write_serial_line = (PIPE p, STRING outstring) VOID:
+   put(write OF p, (outstring, new line));
+
+# Read a single character from serial. #
+PROC read_serial_char = (PIPE p) CHAR:
+(
+   CHAR in1;
+   get(read OF p, (in1));
+   put(stand error, ("[",in1,"]",new line));
+   in1
+);
+
+# Read a line terminated by newline from serial. #
+PROC read_serial_line = (PIPE p) STRING:
+(
+   STRING instring;
+   get(read OF p, (instring, new line));
+   put(stand error, ("[",instring,"]",new line));
+   instring
+);
+
+# ------ #
+# TESTS. #
+# ------ #
+
+IF TRUE
+THEN
+PIPE serial;
+BOOL ok := open_serial("/dev/ttyACM0", "", serial);
+(NOT ok | put(stand error, ("Ugh",newline)); stop);
+
+print((read_serial_char(serial)));
+write_serial_line(serial, "f223334");
+print((read_serial_char(serial)));
+
+sleep(2);
+
+write_serial_line(serial, "w1");
+print((read_serial_char(serial)));
+
+close_serial(serial)
+
+FI

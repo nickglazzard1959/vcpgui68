@@ -21,6 +21,12 @@ PROC pause = (STRING s) VOID:
    get(stand in, (LOC STRING, new line))
 );
 
+# Sleep. The only approach seems to be to run sleep (1) command. t is in seconds. #
+PROC sleep = (INT t) VOID:
+(
+   VOID(system("sleep "+wint(t)))
+);
+
 # Split a string on a character to a row of strings. #
 PROC split_string = (STRING s, CHAR c) []STRING:
 (
@@ -117,6 +123,14 @@ PROC despace = (STRING s) STRING:
       (NOT is space(s[i]) | return +:= s[i])
    OD;
    return 
+);
+
+# Check if a string is in a comma separated list of valid strings. #
+PROC check_valid = (STRING test, STRING valid) BOOL:
+(
+   STRING valid_comma := valid + ",";
+   STRING test_comma := test + ",";
+   string in string(test_comma, NIL, valid_comma)
 );
 
 # Check v is in the range lo to hi inclusive. #

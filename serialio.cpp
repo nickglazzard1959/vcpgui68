@@ -2,7 +2,7 @@
 // ====================================================================
 //
 // 1. Configures a serial port (e.g. /dev/ttyACM0) for "transparent" passage
-//    of characters at 8,N,1 and a specified baud rate.
+//    of characters at 8,N,1 and a specified baud rate (these can be adjusted now).
 // 2. Anything received on stdin is sent to the serial port.
 // 3. Anything received from the serial port is sent to stdout.
 //
@@ -34,38 +34,89 @@
 
 #include "CLI11.hpp" // Gigantic, but useful.
 
-typedef std::map<std::string, speed_t> BAUD_MAP;
+// Global for saved terminal characteristics on entry.
+// Only used if --terminal mode is selected.
+static struct termios tin;
+
+static void terminal_set( void )
+//------------------------------
+// Set terminal to raw mode.
+// Only used if --terminal mode is selected.
+{
+  // Save current terminal configuration
+  tcgetattr(STDIN_FILENO, &tin);
+
+  // Make terminal raw.
+  static struct termios tlocal;
+  memcpy(&tlocal, &tin, sizeof(tin));
+  cfmakeraw(&tlocal);
+  tcsetattr(STDIN_FILENO,TCSANOW,&tlocal);
+}
+ 
+static void terminal_reset( void )
+//--------------------------------
+// Restore terminal's previous configuration. Called on exit.
+// Only used if --terminal mode is selected.
+{
+  tcsetattr(STDIN_FILENO,TCSANOW,&tin);
+}
 
 int main( int ArgCount, char **Args )
+//-----------------------------------
 {
   static const int BUFLEN = 256;
   unsigned char buf[BUFLEN+1];
 
   // Map standard baud rate strings to speed constants.
+  typedef std::map<std::string, speed_t> BAUD_MAP;
   BAUD_MAP baud_map
     {
-      {"0", B0},
-      {"50",B50},           {"75",B75},           {"110",B110},       {"134",134},
-      {"150",B150},         {"200",B200},         {"300",B300},       {"600",B600}, 
-      {"1200",B1200},       {"1800",B1800},       {"2400",B2400},     {"4800",B4800}, 
-      {"9600",B9600},       {"19200",B19200},     {"38400",B38400},   {"57600",B57600}, 
-      {"115200",B115200},   {"230400",B230400},   {"460800",B460800}, {"500000",B500000},
+      {"50",B50},           {"75",B75},           {"110",B110},         {"134",134},
+      {"150",B150},         {"200",B200},         {"300",B300},         {"600",B600}, 
+      {"1200",B1200},       {"1800",B1800},       {"2400",B2400},       {"4800",B4800}, 
+      {"9600",B9600},       {"19200",B19200},     {"38400",B38400},     {"57600",B57600}, 
+      {"115200",B115200},   {"230400",B230400},   {"460800",B460800},   {"500000",B500000},
       {"576000",B576000},   {"921600",B921600},   {"1000000",B1000000},
       {"1152000",B1152000}, {"1500000",B1500000}, {"2000000",B2000000}
+    };
+
+  // Map standard character size strings to size values.
+  typedef std::map<std::string, tcflag_t> SIZE_MAP;
+  SIZE_MAP size_map
+    {
+      {"8",CS8}, {"7",CS7}, {"6",CS6}, {"5",CS5}
     };
 
   // Default arguments.
   std::string serial_port_name = "/dev/ttyACM0";
   std::string baud_rate = "9600";
+  std::string char_size = "8";
+  std::string parity = "N";
+  std::string stop_bits = "1";
+  bool terminal_mode = false;
+  bool version_mode = false;
 
   // Parse any command line arguments.
-  CLI::App app{"Display surface program for a68g"};
+  CLI::App app{"Serial line transput helper program for a68g"};
   Args = app.ensure_utf8(Args);
 
-  app.add_option("-d,--device", serial_port_name, "Serial port device name (e.g. /dev/ttyACM0).");
-  app.add_option("-b,--baud", baud_rate, "Serial Baud rate to use.");
+  app.add_option("-d,--device", serial_port_name, "Serial port device name (default /dev/ttyACM0).");
+  app.add_option("-b,--baud", baud_rate, "Serial Baud rate to use. (9600 default).");
+  app.add_option("-n,--bits", char_size, "Character size in bits. 8 (default), 7, 6, 5");
+  app.add_option("-p,--parity", parity, "N (none, default), E (even), O (odd).");
+  app.add_option("-s,--stop", stop_bits, "1 (default), 2.");
+
+  app.add_flag("-t,--terminal", terminal_mode, 
+               "Use if stdin/stdout are attached to a terminal emulator. Set raw mode on stdin.");
+  app.add_flag("-v,--version", version_mode, "Show version information, then exit,");
 
   CLI11_PARSE(app, ArgCount, Args);
+
+  // Version display only.
+  if( version_mode ){
+    fprintf(stderr, "serialio version: 0.1 (28-JUL-2026)\n");
+    return 0;
+  }
 
   // Validate and prepare to set the baud rate.
   if( baud_map.find(baud_rate) == baud_map.end() ){
@@ -73,6 +124,25 @@ int main( int ArgCount, char **Args )
     return 1;
   }
   speed_t baud_speed = baud_map[baud_rate];
+
+  // Validate and prepare to set the character size.
+  if( size_map.find(char_size) == size_map.end() ){
+    fprintf(stderr, "Unsupported character size: %s\n", char_size.c_str());
+    return 1;
+  }
+  tcflag_t char_bits = size_map[char_size];
+
+  // Validate parity.
+  if( ! ("N" == parity || "O" == parity || "E" == parity) ){
+    fprintf(stderr, "Invalid parity specification: %s\n", parity.c_str());
+    return 1;
+  }
+
+  // Validate stop bits.
+  if( ! ("1" == stop_bits || "2" == stop_bits) ){
+    fprintf(stderr, "Invalid stop bits specification: %s\n", stop_bits.c_str());
+    return 1;
+  }
   
   // Open the serial port.
   int serial_port = open(serial_port_name.c_str(), O_RDWR);
@@ -91,10 +161,18 @@ int main( int ArgCount, char **Args )
   }
 
   // Modify the attributes to match the expectations of the device we are talking to.
-  tty.c_cflag &= ~PARENB;  // Disable parity.
+  if( "N" == parity )
+    tty.c_cflag &= ~PARENB;  // Disable parity.
+  else{
+    tty.c_cflag |= PARENB;  // Enable parity.
+    if( "O" == parity )
+      tty.c_cflag |= PARODD;  // Use odd parity. Default is even.
+  }
   tty.c_cflag &= ~CSTOPB;  // 1 stop bit only.
+  if( "2" == stop_bits )
+    tty.c_cflag |= CSTOPB;  // 2 stop bits.
   tty.c_cflag &= ~CSIZE;   // Clear data size bits.
-  tty.c_cflag |= CS8;      // 8 data bits.
+  tty.c_cflag |= char_bits;    // 8 (7,6,5) data bits.
   tty.c_cflag &= ~CRTSCTS; // No RTS/CTS flow control.
   tty.c_cflag |= CREAD|CLOCAL; // Ignore modem control lines. Enable receiver.
 
@@ -126,6 +204,12 @@ int main( int ArgCount, char **Args )
     fprintf(stderr, "Failed to set serial port attributes, error: %s\n",
             strerror(errno));
     return 3;
+  }
+
+  // If --terminal_mode, set stdin to raw mode. Return to sanity on exit.
+  if( terminal_mode ){
+    terminal_set();
+    atexit(terminal_reset);
   }
   
   // Setup an initial timeout for select.
