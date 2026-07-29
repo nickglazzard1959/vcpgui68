@@ -1,0 +1,50 @@
+PR read "angelfg.a68" PR
+PR read "rigol3kdmm.a68" PR
+
+# Array to hold the measured voltage values for every range and attenuation. #
+[0:2,0:255]REAL measured_volts;
+
+# Open the DMM. Usually appears on /dev/usbtmc2. #
+REF DMKKK dmm := open_dm3k(2, TRUE);
+(DEV_INVALID dmm | put(stand error, ("Cannot open multimeter. Giving up.", new line)); stop);
+
+# Open the function generator. Usually appears on /dev/ttyACM0. #
+REF AFG afg := open_afg(0);
+(AFG_INVALID afg | put(stand error, ("Cannot open function generator. Giving up.", new line));
+                   close_dm3k(dmm); stop);
+
+# Set AC RMS voltage measurement on the DMM and sine waves at 1kHz from the function generator. #
+(NOT set_waveform_afg(afg, "sine") | put(stand error, ("Failed to set waveform. Giving up.", new line));
+                                      fail);
+(NOT set_frequency_afg(afg, 1000.0) | put(stand error, ("Failed to set frequency. Giving up.", new line));
+                                      fail);
+(NOT set_function_dm3k(dmm, "ACV") | put(stand error, ("Failed to set ACV on DMM. Giving up.", new line));
+                                     fail);
+
+# Step over all range and attenuator settings.#
+FOR i_range FROM 0 TO 2
+DO
+   (NOT set_range_afg(afg, i_range) | put(stand error, ("Failed to set range. Giving up.", new line));
+                                      fail);
+   FOR i_atten FROM 0 TO 255
+   DO
+      (NOT set_atten_afg(afg, i_atten) | put(stand error, ("Failed to set attenuation. Giving up.", new line));
+                                         fail);
+
+      # Measure the output. #
+      BOOL overload := FALSE;
+      REAL volts := 0.0;
+      (NOT measure_dm3k(dmm, volts, overload) | put(stand error, 
+                                                    ("Failed to measure output. Giving up.", new line));
+                                                fail);
+      print((wint(i_range),",",wint(i_atten),",",fixed(volts,0,6),new line));
+      measured_volts[i_range,i_atten] := volts
+   OD
+OD;
+
+# Close the function generator. #
+fail:
+close_afg(afg);
+
+# Close the DMM. #
+close_dm3k(dmm)

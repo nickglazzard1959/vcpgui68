@@ -1,0 +1,152 @@
+COMMENT
+angelfg.a68 - Routines for controlling an ANGEL X3325X DDS function generator over serial.
+==========================================================================================
+
+Allow all features of this homemade function generator to be controlled programmatically.
+Since the device has no physical control panel, this is really the only way to use it!
+
+When the device is opened, it initialises, after which it sends a single * character.
+Commands are short strings (1 character, in fact) followed by a numeric argument terminated by
+a . or a string argument terminated by ]. Each command gets a 1 character response: * if OK
+or ? if the command was not understood.
+
+Nick Glazzard 2026
+------------------
+COMMENT
+
+PR read "serialio.a68" PR
+
+MODE AFG = STRUCT( PIPE p, BOOL ok );
+
+# Open a serial connection to the function generator. This will be on /dev/ttyACM<dev_no>. #
+PROC open_afg = (INT dev_no) REF AFG:
+(
+   REF AFG afg = HEAP AFG;
+   STRING dev_name := "/dev/ttyACM" + wint(dev_no);
+   ok OF afg := open_serial(dev_name, "9600,8,N,1", p OF afg);
+   (NOT ok OF afg | done);
+
+   # Get the * character sent after initialisation. #
+   CHAR response := read_serial_char(p OF afg);
+   (response /= "*" | 
+         put(stand error, ("open_afg() failed.", new line));
+         close_serial(p OF afg);
+         ok OF afg := FALSE
+   );
+
+   done:
+   afg
+);
+
+# Check if the device was opened correctly. #
+OP AFG_INVALID = (REF AFG afg) BOOL:
+(
+   NOT (ok OF afg)
+);
+
+PROC close_afg = (REF AFG afg) VOID:
+(
+   (NOT AFG_INVALID afg |
+      close_serial(p OF afg);
+      ok OF afg := FALSE
+   )
+);
+
+# Send a command and check for the expected response. #
+PROC send_cmd_afg = (REF AFG afg, STRING cmd) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF NOT AFG_INVALID afg
+   THEN
+      CO print(("cmd=[",cmd,"]",newline)); CO
+      write_serial_line(p OF afg, cmd);
+      CHAR response := read_serial_char(p OF afg);
+      (response /= "*" | put(stand error, ("Device response error: ", response, new line)); done);
+      CO sleep(1); CO
+      retval := TRUE
+   FI;
+
+   done:
+   retval
+);
+
+# Set the waveform to sine, triangle or square. #
+PROC set_waveform_afg = (REF AFG afg, STRING waveform) BOOL:
+(
+   BOOL retval := FALSE;
+   STRING valid_waveforms = "sine,triangle,square";
+
+   IF NOT AFG_INVALID afg
+   THEN
+      INT index := string_to_choice_index(string_to_lower(waveform), valid_waveforms);
+      (index = 0 | put(stand error, ("Invalid waveform requested: ", waveform, new line)); done);
+      retval := send_cmd_afg(afg, "w" + wint(index-1) + ".")
+   FI;
+
+   done:
+   retval
+);
+
+# Set the frequency to output. #
+PROC set_frequency_afg = (REF AFG afg, REAL frequency) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF NOT AFG_INVALID afg
+   THEN
+      INT i_frequency := ROUND(10.0 * frequency);
+      i_frequency := clamp_int(i_frequency, 1, 10 000 000);
+      retval := send_cmd_afg(afg, "f" + wint(i_frequency) + ".")
+   FI;
+
+   done:
+   retval
+);
+
+# Set the range to output. 0=0:5V. 1=0:500mV, 2=0:50mV #
+PROC set_range_afg = (REF AFG afg, INT range) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF NOT AFG_INVALID afg
+   THEN
+      INT i_range := clamp_int(range, 0, 2);
+      retval := send_cmd_afg(afg, "r" + wint(i_range) + ".")
+   FI;
+
+   done:
+   retval
+);
+
+# Set the output attenuation. 0=min output. 255=max output. #
+PROC set_atten_afg = (REF AFG afg, INT atten) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF NOT AFG_INVALID afg
+   THEN
+      INT i_atten := clamp_int(atten, 0, 255);
+      retval := send_cmd_afg(afg, "a" + wint(i_atten) + ".")
+   FI;
+
+   done:
+   retval
+);
+
+# ------ #
+# TESTS. #
+# ------ #
+
+IF FALSE
+THEN
+REF AFG afg := open_afg(0);
+(AFG_INVALID afg | put(stand error, ("Giving up.", new line)); stop);
+
+print((set_frequency_afg(afg, 7345.6)));
+print((set_waveform_afg(afg, "square")));
+print((set_range_afg(afg, 0)));
+print((set_atten_afg(afg, 51)));
+
+close_afg(afg)
+FI;

@@ -99,7 +99,7 @@ PROC read_serial_char = (PIPE p) CHAR:
 (
    CHAR in1;
    get(read OF p, (in1));
-   put(stand error, ("[",in1,"]",new line));
+   CO put(stand error, ("[",in1,"]",new line)); CO
    in1
 );
 
@@ -108,7 +108,7 @@ PROC read_serial_line = (PIPE p) STRING:
 (
    STRING instring;
    get(read OF p, (instring, new line));
-   put(stand error, ("[",instring,"]",new line));
+   CO put(stand error, ("[",instring,"]",new line)); CO
    instring
 );
 
@@ -116,7 +116,7 @@ PROC read_serial_line = (PIPE p) STRING:
 # TESTS. #
 # ------ #
 
-IF TRUE
+IF FALSE
 THEN
 PIPE serial;
 BOOL ok := open_serial("/dev/ttyACM0", "", serial);
@@ -133,4 +133,4 @@ print((read_serial_char(serial)));
 
 close_serial(serial)
 
-FI
+FI;

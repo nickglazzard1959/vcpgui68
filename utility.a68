@@ -133,6 +133,20 @@ PROC check_valid = (STRING test, STRING valid) BOOL:
    string in string(test_comma, NIL, valid_comma)
 );
 
+# Convert a string to a "choice" index by searching for it in a #
+# comma separated list of choice strings. #
+PROC string_to_choice_index = (STRING test, STRING choices) INT:
+(
+   INT retval := 0;
+   []STRING split_choices = split_string(choices, ",");
+   FOR i TO ELEMS split_choices
+   DO
+      (test = split_choices[i] | retval := i; done)
+   OD;
+   done:
+   retval
+);
+
 # Check v is in the range lo to hi inclusive. #
 PROC check_in_range_int = (INT v, lo, hi) BOOL:
 (
