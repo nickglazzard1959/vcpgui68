@@ -2,7 +2,9 @@ PR read "angelfg.a68" PR
 PR read "rigol3kdmm.a68" PR
 
 # Array to hold the measured voltage values for every range and attenuation. #
-[0:2,0:255]REAL measured_volts;
+# We'll use a 1D array as the range and attenuation can be found very easily. #
+# Then range = index % 256, atten = index - (range * 256)  #
+[0:767]REAL measured_volts;
 
 # Open the DMM. Usually appears on /dev/usbtmc2. #
 REF DMKKK dmm := open_dm3k(2, TRUE);
@@ -22,6 +24,7 @@ REF AFG afg := open_afg(0);
                                      fail);
 
 # Step over all range and attenuator settings.#
+INT j := 0;
 FOR i_range FROM 0 TO 2
 DO
    (NOT set_range_afg(afg, i_range) | put(stand error, ("Failed to set range. Giving up.", new line));
@@ -37,10 +40,19 @@ DO
       (NOT measure_dm3k(dmm, volts, overload) | put(stand error, 
                                                     ("Failed to measure output. Giving up.", new line));
                                                 fail);
+
+      # Save the measured value in an array. #
       print((wint(i_range),",",wint(i_atten),",",fixed(volts,0,6),new line));
-      measured_volts[i_range,i_atten] := volts
+      measured_volts[j] := volts;
+      j +:= 1
    OD
 OD;
+
+# Write the measured volts array. This is the calibration array. #
+STRING cal_file_name := "afg_calibration.dat";
+(NOT write_1d_real_array(cal_file_name, measured_volts) |
+      put(stand error, ("Failed to write calibration data.", new line)) |
+         put(stand error, ("Wrote calibration data to: ", cal_file_name, new line)));
 
 # Close the function generator. #
 fail:

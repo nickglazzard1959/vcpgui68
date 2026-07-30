@@ -725,6 +725,181 @@ PROC open_chardev = (STRING devname, STRING mode, REF FILE fio) INT:
    ret_error
 );
 
+# File signature "UUIDs". Just output of date +%s when I want a "UUID"! #
+INT k_1d_array_sig = 1785383565;
+INT k_2d_array_sig = 1785383653;
+
+# Write a 1D REAL array to a file. Return FALSE on error. #
+PROC write_1d_real_array = (STRING filename, []REAL array) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # Open a binary output file. #
+   FILE fout;
+   INT status := open_file(filename, "w+", fout);
+   (status /= 0 | done);
+
+   # Write a file type signature so we can try to verify it's a 1D array on read. #
+   put bin(fout, k_1d_array_sig);
+
+   # Write the size and the array contents as binary. #
+   INT size := ELEMS array;
+   put bin(fout, size);
+   put bin(fout, array);
+   close(fout);
+   retval := TRUE;
+
+   done:
+   retval
+);
+
+# Read a 1D REAL array from a file. If this fails, return a vacuum. #
+PROC read_1d_real_array = (STRING filename) []REAL:
+(
+   FLEX [1:0] REAL return;
+   
+   # Open a binary input file. On error, simply return an empty array (vacuum). #
+   FILE fin;
+   INT status := open_file(filename, "r+", fin);
+   (status /= 0 | done);
+
+   # Read and check the signature. #
+   INT sig;
+   get bin(fin, sig);
+   (sig /= k_1d_array_sig | close(fin); done);
+
+   # Read the size and the array contents as binary. #
+   INT size;
+   get bin(fin, size);
+   [size]REAL result;
+   get bin(fin, result);
+   return := result;
+   close(fin);
+
+   done:
+   return
+);
+
+# Return TRUE if a 1D array is a vacuum. #
+OP ARRAYEMPTY = ([]REAL array) BOOL:
+(
+   (ELEMS array) = 0
+);
+
+# Return index of minimum value in a 1D array. #
+OP ARRAYMININDEX = ([]REAL array) INT:
+(
+   INT mindex := 1;
+   REAL fmin := array[1];
+   FOR i FROM 2 TO ELEMS array
+   DO
+      (array[i] < fmin | fmin := array[i]; mindex := i)
+   OD;
+   mindex
+);
+
+# Return minimum value in a 1D array. #
+OP ARRAYMIN = ([]REAL array) REAL:
+(
+   REAL minval := 0.0;
+   INT mindex := ARRAYMININDEX array;
+   minval := array[mindex];
+   minval
+);
+
+# Return index of the maximum value in an array. #
+OP ARRAYMAXINDEX = ([]REAL array) INT:
+(
+   INT maxdex := 1;
+   REAL fmax := array[1];
+   FOR i FROM 2 TO ELEMS array
+   DO
+      (array[i] > fmax | fmax := array[i]; maxdex := i)
+   OD;
+   maxdex
+);
+
+# Return the maximum value in an array. #
+OP ARRAYMAX = ([]REAL array) REAL:
+(
+   REAL maxval := 0.0;
+   INT maxdex := ARRAYMAXINDEX array;
+   maxval := array[maxdex];
+   maxval
+);
+
+# Return the index of the element of array that is closest to a given value. #
+PRIO ARRAYCLOSESTINDEX = 1;
+OP ARRAYCLOSESTINDEX = ([]REAL array, REAL value) INT:
+(
+   REAL mindiff := ABS (array[1] - value);
+   INT mindex := 1;
+   FOR i FROM 2 TO ELEMS array
+   DO
+      REAL diff := ABS (array[i] - value);
+      (diff < mindiff | mindiff := diff; mindex := i)
+   OD;
+   mindex
+);
+
+# Write a 2D REAL array to a file. Retuen FALSE on error. #
+PROC write_2d_real_array = (STRING filename, [,]REAL array) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # Open a binary output file. #
+   FILE fout;
+   INT status := open_file(filename, "w+", fout);
+   (status /= 0 | done);
+
+   # Write a file type signature so we can try to verify it's a 2D array on read. #
+   put bin(fout, k_2d_array_sig);
+
+   # Write the size and the array contents as binary. #
+   INT rows := 1 ELEMS array;
+   INT cols := 2 ELEMS array;
+   put bin(fout, (rows, cols));
+   put bin(fout, array);
+   close(fout);
+   retval := TRUE;
+
+   done:
+   retval
+);
+
+# Read a 2D REAL array from a file. If this fails, return a vacuum. #
+PROC read_2d_real_array = (STRING filename) [,]REAL:
+(
+   FLEX [1:0,1:0] REAL return;
+   
+   # Open a binary input file. On error, simply return an empty array (vacuum). #
+   FILE fin;
+   INT status := open_file(filename, "r+", fin);
+   (status /= 0 | done);
+
+   # Read and check the signature. #
+   INT sig;
+   get bin(fin, sig);
+   (sig /= k_2d_array_sig | close(fin); done);
+
+   # Read the dimensions (rows,cols) and the array contents as binary. #
+   INT rows, cols;
+   get bin(fin, (rows, cols));
+   [rows,cols]REAL result;
+   get bin(fin, result);
+   return := result;
+   close(fin);
+
+   done:
+   return
+);
+
+# Return TRUE if a 2D array is a vacuum. #
+OP ARRAYEMPTY = ([,]REAL array) BOOL:
+(
+   (1 ELEMS array * 2 ELEMS array ) = 0
+);
+
 # Print error message for ierror (as per errno) to stand error. Prepend with leader. #
 PROC print_os_error = (STRING leader, INT ierror) VOID:
 (

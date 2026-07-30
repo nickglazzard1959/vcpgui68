@@ -16,7 +16,7 @@ COMMENT
 
 PR read "serialio.a68" PR
 
-MODE AFG = STRUCT( PIPE p, BOOL ok );
+MODE AFG = STRUCT( PIPE p, BOOL ok, FLEX [1:0] REAL caldata );
 
 # Open a serial connection to the function generator. This will be on /dev/ttyACM<dev_no>. #
 PROC open_afg = (INT dev_no) REF AFG:
@@ -33,6 +33,11 @@ PROC open_afg = (INT dev_no) REF AFG:
          close_serial(p OF afg);
          ok OF afg := FALSE
    );
+
+   # Read calibration file. If it doesn't exist, caldata will be empty. #
+   caldata OF afg := read_1d_real_array("afg_calibration.dat");
+   (ARRAYEMPTY (caldata OF afg) | 
+         put(stand error, ("Warning: failed to read afg_calibration.dat", new line)));
 
    done:
    afg
@@ -100,7 +105,6 @@ PROC set_frequency_afg = (REF AFG afg, REAL frequency) BOOL:
       retval := send_cmd_afg(afg, "f" + wint(i_frequency) + ".")
    FI;
 
-   done:
    retval
 );
 
@@ -115,7 +119,6 @@ PROC set_range_afg = (REF AFG afg, INT range) BOOL:
       retval := send_cmd_afg(afg, "r" + wint(i_range) + ".")
    FI;
 
-   done:
    retval
 );
 
@@ -130,8 +133,89 @@ PROC set_atten_afg = (REF AFG afg, INT atten) BOOL:
       retval := send_cmd_afg(afg, "a" + wint(i_atten) + ".")
    FI;
 
+   retval
+);
+
+# Set the output level to a specified RMS voltage. #
+PROC set_rms_volts_afg = (REF AFG afg, REAL volts) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF NOT AFG_INVALID afg
+   THEN
+      IF ARRAYEMPTY (caldata OF afg)
+      THEN 
+         put(stand error, ("Cannot set voltage: afg_calibration.dat read failed.", new line))
+      ELSE
+         INT index := (caldata OF afg) ARRAYCLOSESTINDEX volts;
+         INT range := index % 256;
+         INT atten = index - (range * 256);
+         (NOT set_range_afg(afg, range) | done);
+         (NOT set_atten_afg(afg, atten) | done);
+         retval := TRUE
+      FI
+   FI;
+
    done:
    retval
+);
+
+# Set the output level to a specified p-p voltage. #
+PROC set_pp_volts_afg = (REF AFG afg, REAL volts) BOOL:
+(
+   REAL rms_volts := volts / (2.0 * sqrt(2.0));
+   set_rms_volts_afg(afg, rms_volts)
+);
+
+# Set the output level according to one of definitions. #
+PROC set_volts_afg = (REF AFG afg, REAL volts, STRING variant) BOOL:
+(
+   BOOL retval := FALSE;
+   STRING options := "p-p,rms,dbv,dbu";
+   INT choice := string_to_choice_index(string_to_lower(variant), options);
+
+   CASE choice
+   IN
+      # 1 p-p #  retval := set_pp_volts_afg(afg, volts),
+      # 2 rms #  retval := set_rms_volts_afg(afg, volts),
+      # 3 dBV #  (REAL rmsv := 10.0 ** (volts / 20.0); retval := set_rms_volts_afg(afg, rmsv)),
+      # 4 dBu #  (REAL rmsv := 0.775 * (10.0 ** (volts / 20.0)); retval := set_rms_volts_afg(afg, rmsv))
+   OUT
+      put(stand error, ("set_volts_afg(): requested variant not known: ", variant, newline))
+   ESAC;
+
+   STRING volt_string := "Invalid voltage";
+   (retval | format_volts_string(volts, choice));
+
+   done:
+   retval
+);
+
+# Format the volts string for display on the LCD and send the string. #
+PROC format_volts_string = (REAL volts, INT choice) VOID:
+(
+   STRING result;
+   STRING supplement := (choice = 1 | " P-P" | " RMS");
+
+   IF (choice = 1) OR (choice = 2)
+   THEN
+      IF volts >= 1.0
+      THEN
+         putsf(result, ($%4.2f%s%s$, volts, "V", supplement))
+      ELIF volts >= 0.001
+      THEN
+         putsf(result, ($%4.1f%s%s$, 1 000.0*volts, "mV", supplement))
+      ELSE
+         putsf(result, ($%4d%s%s$, ROUND 1 000 000.0*volts, "uV", supplement))
+      FI
+   ELIF choice = 3
+   THEN
+      putsf(result, ($%4.1f%s$, volts, "dBV"))
+   ELSE
+      putsf(result, ($%4.1f%s$, volts, "dBu"))
+   FI;
+
+   VOID(send_cmd_afg(afg, "v" + result + "]"))
 );
 
 # ------ #
