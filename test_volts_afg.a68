@@ -5,6 +5,11 @@ REF AFG afg := open_afg(0);
 (AFG_INVALID afg | put(stand error, ("Cannot open function generator. Giving up.", new line));
                    stop);
 
+[]REAL volt_defs = (5.0,2.0,1.0, 0.5,0.2,0.1, 0.05,0.02,0.01, 0.005,0.002,0.001);
+
+(NOT set_frequency_afg(afg, 20.0) | put(stand error, ("Failed to set frequency. Giving up.", new line));
+                                      fail);
+
 INT waitsecs = 5;
 print((set_volts_afg(afg, 5.0, "rms"), new line)); sleep(waitsecs);
 print((set_volts_afg(afg, 2.0, "rms"), new line)); sleep(waitsecs);
@@ -36,5 +41,6 @@ print((set_volts_afg(afg, 0.001, "p-p"), new line)); sleep(waitsecs);
 print((set_volts_afg(afg, 0.0, "dBV"), new line)); sleep(waitsecs);
 print((set_volts_afg(afg, 0.0, "dBu"), new line)); sleep(waitsecs);
 
+fail:
 close_afg(afg)
 

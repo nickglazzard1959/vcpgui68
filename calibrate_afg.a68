@@ -2,9 +2,9 @@ PR read "angelfg.a68" PR
 PR read "rigol3kdmm.a68" PR
 
 # Array to hold the measured voltage values for every range and attenuation. #
-# We'll use a 1D array as the range and attenuation can be found very easily. #
+# We'll use a 1D array as the range, attenuation and gain mode can be found very easily. #
 # Then range = index % 256, atten = index - (range * 256)  #
-[0:767]REAL measured_volts;
+[0:1535]REAL measured_volts;
 
 # Open the DMM. Usually appears on /dev/usbtmc2. #
 REF DMKKK dmm := open_dm3k(2, TRUE);
@@ -23,28 +23,37 @@ REF AFG afg := open_afg(0);
 (NOT set_function_dm3k(dmm, "ACV") | put(stand error, ("Failed to set ACV on DMM. Giving up.", new line));
                                      fail);
 
-# Step over all range and attenuator settings.#
+# Step over all gain, range and attenuator settings.#
 INT j := 0;
-FOR i_range FROM 0 TO 2
+FOR i_gain FROM 0 TO 1
 DO
-   (NOT set_range_afg(afg, i_range) | put(stand error, ("Failed to set range. Giving up.", new line));
-                                      fail);
-   FOR i_atten FROM 0 TO 255
+   (NOT set_lower_gain(afg, i_gain > 0) | 
+         put(stand error, ("Failed to set gain mode. Giving up.", new line));
+         fail);
+   FOR i_range FROM 0 TO 2
    DO
-      (NOT set_atten_afg(afg, i_atten) | put(stand error, ("Failed to set attenuation. Giving up.", new line));
-                                         fail);
+      (NOT set_range_afg(afg, i_range) | 
+            put(stand error, ("Failed to set range. Giving up.", new line));
+            fail);
+      FOR i_atten FROM 0 TO 255
+      DO
+         (NOT set_atten_afg(afg, i_atten) | 
+               put(stand error, ("Failed to set attenuation. Giving up.", new line));
+               fail);
 
-      # Measure the output. #
-      BOOL overload := FALSE;
-      REAL volts := 0.0;
-      (NOT measure_dm3k(dmm, volts, overload) | put(stand error, 
-                                                    ("Failed to measure output. Giving up.", new line));
-                                                fail);
+         # Measure the output. #
+         BOOL overload := FALSE;
+         REAL volts := 0.0;
+         (NOT measure_dm3k(dmm, volts, overload) | 
+               put(stand error, 
+                   ("Failed to measure output. Giving up.", new line));
+               fail);
 
-      # Save the measured value in an array. #
-      print((wint(i_range),",",wint(i_atten),",",fixed(volts,0,6),new line));
-      measured_volts[j] := volts;
-      j +:= 1
+         # Save the measured value in an array. #
+         print((wint(i_range),",",wint(i_atten),",",fixed(volts,0,6),new line));
+         measured_volts[j] := volts;
+         j +:= 1
+      OD
    OD
 OD;
 

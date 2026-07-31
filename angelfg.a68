@@ -136,6 +136,20 @@ PROC set_atten_afg = (REF AFG afg, INT atten) BOOL:
    retval
 );
 
+# Set lower gain mode in output amplifier. This sort of doubles the available output levels. #
+PROC set_lower_gain = (REF AFG afg, BOOL on) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF NOT AFG_INVALID afg
+   THEN
+      INT i_on := (on | 1 | 0);
+      retval := send_cmd_afg(afg, "d" + wint(i_on) + ".")
+   FI;
+
+   retval
+);
+
 # Set the output level to a specified RMS voltage. #
 PROC set_rms_volts_afg = (REF AFG afg, REAL volts) BOOL:
 (
@@ -147,9 +161,12 @@ PROC set_rms_volts_afg = (REF AFG afg, REAL volts) BOOL:
       THEN 
          put(stand error, ("Cannot set voltage: afg_calibration.dat read failed.", new line))
       ELSE
-         INT index := (caldata OF afg) ARRAYCLOSESTINDEX volts;
-         INT range := index % 256;
-         INT atten = index - (range * 256);
+         INT index := ((caldata OF afg) ARRAYCLOSESTINDEX volts) - 1; # 0:1535 #
+         INT range := index % 256; # 0:5 #
+         INT atten := index - (range * 256); # 0:255 #
+         INT low_gain := range % 3; # 0:1 #
+         range -:= (3 * low_gain); # 0:2 #
+         (NOT set_lower_gain(afg, low_gain = 1) | done);
          (NOT set_range_afg(afg, range) | done);
          (NOT set_atten_afg(afg, atten) | done);
          retval := TRUE
