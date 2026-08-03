@@ -489,6 +489,13 @@ PROC add_pushbutton = (STRING tag, STRING label, USERPROC proc, INT x, y) VOID:
    (check_new_tag(tag) | add_component( make_pushbutton(tag, label, proc, x, y) ))
 );
 
+# Get the dimensions (width/height) of a push button. #
+PROC get_dimensions_pushbutton = (REF INT width, height) VOID:
+(
+   width := (width OF pushbutton_metrics) % (downscale OF pushbutton_metrics);
+   height := (height OF pushbutton_metrics) % (downscale OF pushbutton_metrics)
+);
+
 # Put the drawing commands for a push button in the DSURF display list. #
 PROC instantiate_pushbutton = (PIPE p, REF PUSHBUTTON pb) VOID:
 (
@@ -548,6 +555,13 @@ PROC make_togglebutton = (STRING tag, STRING label, USERPROC proc, INT x, y, BOO
 PROC add_togglebutton = (STRING tag, STRING label, USERPROC proc, INT x, y, BOOL state) VOID:
 (
    (check_new_tag(tag) | add_component( make_togglebutton(tag, label, proc, x, y, state) ))
+);
+
+# Get the dimensions (width/height) of a toggle button. #
+PROC get_dimensions_togglebutton = (REF INT width, height) VOID:
+(
+   width := (width OF togglebutton_metrics) % (downscale OF togglebutton_metrics);
+   height := (height OF togglebutton_metrics) % (downscale OF togglebutton_metrics)
 );
 
 # Put the drawing commands for a toggle button in the DSURF display list. #
@@ -628,6 +642,14 @@ PROC make_radiobutton = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT
 PROC add_radiobutton = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT which) VOID:
 (
    (check_new_tag(tag) | add_component( make_radiobutton(tag, labels, proc, x, y, which) ))
+);
+
+# Get the dimensions (width/height) of a push button. #
+PROC get_dimensions_radiobutton = (REF RADIOBUTTON rb, REF INT width, height, BOOL single) VOID:
+(
+   INT button_width := (width OF radiobutton_metrics) % (downscale OF radiobutton_metrics);
+   width := (single | button_width | (n_buttons OF rb) * button_width);
+   height := (height OF radiobutton_metrics) % (downscale OF radiobutton_metrics)
 );
 
 # Put the drawing commands for a radio button in the DSURF display list. #
@@ -813,6 +835,16 @@ PROC calc_numeric_bezel = (REF NUMERICDISPLAY nd, INT digit_width, array_width, 
    x2 := x1 + array_width + 2 * bezel_width OF numericdisplay_metrics;
    y2 := y1 + (height OF numericdisplay_metrics % downscale OF numericdisplay_metrics) + 
          2 * bezel_width OF numericdisplay_metrics
+);
+
+# Get the dimensions (width/height) of a numeric display. #
+PROC get_dimensions_numericdisplay = (REF NUMERICDISPLAY nd, REF INT width, height) VOID:
+(
+   INT x1, y1, x2, y2, digit_width, array_width, xc, yc;
+   calc_numeric_layout(nd, digit_width, array_width, xc, yc);
+   calc_numeric_bezel(nd, digit_width, array_width, x1, y1, x2, y2);
+   width := x2 - x1;
+   height := y2 - y1
 );
 
 # Put the drawing commands for a numeric display in the DSURF display list. #
@@ -1077,6 +1109,13 @@ PROC add_knob = (STRING tag, STRING label, USERPROC proc, INT x, y, INT angmin, 
    (check_new_tag(tag) | add_component( make_knob(tag, label, proc, x, y, angmin, angmax, vmin, vmax, vnow) ))
 );
 
+# Get the dimensions (width/height) of a toggle button. #
+PROC get_dimensions_knob = (REF INT width, height) VOID:
+(
+   width := (width OF knob_metrics) % (downscale OF knob_metrics);
+   height := (height OF knob_metrics) % (downscale OF knob_metrics)
+);
+
 # Put the drawing commands for a knob in the DSURF display list. #
 PROC instantiate_knob = (PIPE p, REF KNOB kb) VOID:
 (
@@ -1199,6 +1238,13 @@ PROC make_selector = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT wh
 PROC add_selector = (STRING tag, STRING labels, USERPROC proc, INT x, y, INT which) VOID:
 (
    (check_new_tag(tag) | add_component( make_selector(tag, labels, proc, x, y, which) ))
+);
+
+# Get the dimensions (width/height) of a toggle button. #
+PROC get_dimensions_selector = (REF INT width, height) VOID:
+(
+   width := (width OF selector_metrics) % (downscale OF selector_metrics);
+   height := (height OF selector_metrics) % (downscale OF selector_metrics)
 );
 
 # Find the end point of a line from selector center to some radius at some angle. #
@@ -1362,6 +1408,15 @@ PROC add_keypad = (STRING tag, USERPROC proc, INT x, y, STRING ndtag) VOID:
    (check_new_tag(tag) | add_component( make_keypad(tag, proc, x, y, ndtag) ))
 );
 
+# Get the dimensions (width/height) of a keypad. #
+PROC get_dimensions_keypad = (REF INT width, height) VOID:
+(
+   INT button_height := (height OF keypad_metrics) % (downscale OF keypad_metrics);
+   INT button_width := (width OF keypad_metrics) % (downscale OF keypad_metrics);
+   width := 4 * button_width;
+   height := 4 * button_height
+);
+
 # Put the drawing commands for a keypad in the DSURF display list. #
 PROC instantiate_keypad = (PIPE p, REF KEYPAD kp) VOID:
 (
@@ -1372,8 +1427,8 @@ PROC instantiate_keypad = (PIPE p, REF KEYPAD kp) VOID:
    CO put(stand error, ("button w/h = ",button_width,button_height,newline)); CO
    INT array_width := 4 * button_width;
    INT array_height := 4 * button_height;
-   INT xc := (x OF kp) - array_width % 2;
-   INT yc := (y OF kp) - array_height % 2;
+   INT xc := (x OF kp); CO - array_width % 2;CO
+   INT yc := (y OF kp); CO - array_height % 2;CO
 
    ds_set_colour_rgba(p, 0, 0, 0, 255); # Need black digits. #
 
@@ -1541,6 +1596,78 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 );
 
 
+# =========== #
+# LAYOUT AIDS #
+# =========== #
+
+# Distribute groups of buttons, each with a number of buttons specified in a #
+# button_counts array, with an individual button having a width of button_width, #
+# so they are evenly distributed with equal gaps across total_width. The same logic #
+# applies to vertical distribution with heights instead of widths, #
+# If the arrangement won't fit in total_width, return over=TRUE, else FALSE. #
+PROC evenly_distribute = (INT total_width, []INT button_counts, INT button_width, INT margin,
+                          REF BOOL over) []INT:
+(
+   INT n_button_groups := ELEMS button_counts;
+   [n_button_groups]INT centers;
+   INT total_buttons := 0;
+   FOR i TO n_button_groups
+   DO
+      total_buttons +:= button_counts[i]
+   OD;
+   INT gap := (total_width - (button_width * total_buttons)) % (n_button_groups + 1);
+   INT p := 0;
+   FOR i TO n_button_groups
+   DO
+      centers[i] := p + gap + (button_counts[i] * button_width) % 2;
+      p := centers[i] + (button_counts[i] * button_width) % 2;
+      over := (p + gap) > total_width
+   OD;
+   FOR i TO n_button_groups DO centers[i] +:= margin OD;
+   centers
+);
+
+# Standard vertical spacing between rows of buttons. #
+PROC vertical_spacing_buttons = (BOOL with_group_label) INT:
+(
+   INT width, height;
+   get_dimensions_pushbutton(width, height);
+   (with_group_label | height+28 | height+8)
+);
+
+# Standard vertical spacing between roes of knobs. #
+PROC vertical_spacing_knobs = (BOOL with_group_label) INT:
+(
+   INT width, height;
+   get_dimensions_knob(width, height);
+   (with_group_label | height+28 | height+8)
+);
+
+# Standard vertical spacing between components and labels beneath them. #
+PROC vertical_group_label_spacing = INT:
+(
+   25
+);
+
+# Convert a corner coordinate to a center coordinate. #
+PROC corner_to_center = (STRING corner, INT x, y, width, height, REF INT xcen, ycen) VOID:
+(
+   STRING corners := "bl,tl,br,tr,c";
+   INT choice := string_to_choice_index(string_to_lower(corner), corners);
+
+   CASE choice 
+   IN
+      # 1 bottom left # (xcen := x + width%2; ycen := y - height%2),
+      # 2 top left # (xcen := x + width%2; ycen := y + height%2),
+      # 3 bottom right # (xcen := x - width%2; ycen := y - height%2),
+      # 4 top right # (xcen := x - width%2; ycen := y + height%2),
+      # 5 center # (xcen := x; ycen := y)
+   OUT
+      put(stand error, ("corner_to_center(): unknown corner string, not bl,tl,br,tr,c", new line));
+      xcen := x; ycen := y
+   ESAC
+);
+
 # ============ #
 # UI Internals #
 # ============ #
@@ -1686,6 +1813,62 @@ PROC check_old_tag = (STRING tag) INT:
    INT i_component := find_component(tag, someproc);
    ((i_component = 0) | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)));
    i_component
+);
+
+# Get position and size information for a named component. #
+PROC get_geometry = (STRING tag, REF INT xc, yc, width, height) BOOL:
+(
+   BOOL return_value := TRUE;
+   xc := yc := width := height := 0;
+   USERPROC someproc;
+   INT i_component := find_component(tag, someproc);
+   (i_component = 0 | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)); 
+                      return_value := FALSE; fail);
+   CASE components[i_component]
+   IN
+      (REF PUSHBUTTON pb): (xc := x OF pb; yc := y OF pb; get_dimensions_pushbutton(width,height)),
+      (REF TOGGLEBUTTON tb): (xc := x OF tb; yc := y OF tb; get_dimensions_togglebutton(width,height)),
+      (REF RADIOBUTTON rb): (xc := x OF rb; yc := y OF rb; get_dimensions_radiobutton(rb,width,height,FALSE)),
+      (REF NUMERICDISPLAY nd): (xc := x OF nd; yc := y OF nd; get_dimensions_numericdisplay(nd,width,height)),
+      (REF KNOB kb): (xc := x OF kb; yc := y OF kb; get_dimensions_knob(width,height)),
+      (REF SELECTOR sb): (xc := x OF sb; yc := y OF sb; get_dimensions_selector(width,height)),
+      (REF KEYPAD kp): (xc := x OF kp; yc := y OF kp; get_dimensions_keypad(width,height)),
+      (REF TIMER tm): (SKIP)
+   ESAC;   
+   fail:
+   return_value
+);
+
+# Move the location of a named component so that 'corner' is at (xc,yc). #
+# Cornet must be one of bl (bottom left), tl (top left), br (bottom right), tr (top right), c (center) #
+PROC move_component = (STRING tag, STRING corner, INT xc, yc) BOOL:
+(
+   INT xnew, ynew, width, height;
+   BOOL return_value := TRUE;
+   USERPROC someproc;
+   INT i_component := find_component(tag, someproc);
+   (i_component = 0 | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)); 
+                      return_value := FALSE; fail);
+   CASE components[i_component]
+   IN
+      (REF PUSHBUTTON pb): (get_dimensions_pushbutton(width,height);
+                            corner_to_center(corner, xc, yc, width, height, x OF pb, y OF pb)),
+      (REF TOGGLEBUTTON tb): (get_dimensions_togglebutton(width,height);
+                              corner_to_center(corner, xc, yc, width, height, x OF tb, y OF tb)),
+      (REF RADIOBUTTON rb): (get_dimensions_radiobutton(rb,width,height,FALSE);
+                             corner_to_center(corner, xc, yc, width, height, x OF rb, y OF rb)),
+      (REF NUMERICDISPLAY nd): (get_dimensions_numericdisplay(nd,width,height);
+                                corner_to_center(corner, xc, yc, width, height, x OF nd, y OF nd)),
+      (REF KNOB kb): (get_dimensions_knob(width,height);
+                      corner_to_center(corner, xc, yc, width, height, x OF kb, y OF kb)),
+      (REF SELECTOR sb): (get_dimensions_selector(width,height);
+                          corner_to_center(corner, xc, yc, width, height, x OF sb, y OF sb)),
+      (REF KEYPAD kp): (get_dimensions_keypad(width,height);
+                        corner_to_center(corner, xc, yc, width, height, x OF kp, y OF kp)),
+      (REF TIMER tm): (SKIP)
+   ESAC;
+   fail:
+   return_value
 );
 
 # Run the event loop. #

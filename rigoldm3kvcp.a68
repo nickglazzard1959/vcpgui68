@@ -194,7 +194,7 @@ REF INT device_number := arg_add_int_option(arg_parser, "-d", "--device",
 
 # Try to open the device before we do anything with the GUI. #
 REF DMKKK device := open_dm3k(device_number, TRUE);
-(DEV_INVALID device | print(("Failed.",newline)); stop);
+(DEV_INVALID device | print(("Failed to open multi-meter. Giving up.",newline)); stop);
 
 # Open and configure the GUI display surface. #
 INT width := 600, height := 250;
