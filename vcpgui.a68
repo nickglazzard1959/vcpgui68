@@ -258,6 +258,12 @@ PROC ds_thick_line = ( PIPE p, INT x1, y1, x2, y2, w ) VOID:
    write_dsurf(p, out_string+rgba_string)
 );
 
+# Add a vertical line, length dy center x,y to the display list. #
+PROC ds_vmark = ( PIPE p, INT x, y, dy ) VOID:
+(
+   ds_line(p, x, y - dy%2, x, y + dy%2)
+);
+
 # Add a circle to the display list. #
 PROC ds_circle = ( PIPE p, INT x1, y1, r ) VOID:
 (
@@ -419,6 +425,9 @@ KNOB_LAYOUT knob_metrics := (150, 150, 2);
 SELECTOR_LAYOUT selector_metrics := (150, 200, 2);
 KEYPAD_LAYOUT keypad_metrics := (65, 64, 2); # Size of one button. #
 NUMERICDISPLAY_LAYOUT numericdisplay_metrics := (256, 341, 5, 5);
+
+# Geometric information on a component. (xc,yc) is the center point. #
+MODE GEOMETRY = STRUCT( INT xc, yc, width, height );
 
 # Add a component "button" of any type to the UI. #
 PROC add_component = (ANYBUTTONREF component) VOID:
@@ -782,6 +791,36 @@ PROC set_radiobutton_by_label = (PIPE p, STRING tag, STRING label, BOOL callproc
    done:
    retval
 );
+
+# Get the X coordinate of the left boundary of each button on a radio button. #
+# Returns an array of n_buttons+1 x coordinates: n_buttons+1 has the right edge of the array. #
+PROC get_radiobutton_x_boundaries = (STRING tag) []INT:
+(
+   FLEX [1:0] INT boundaries;
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF RADIOBUTTON rb): (
+            INT n_boundaries := n_buttons OF rb + 1;
+            [n_boundaries]INT valid_boundaries;
+            INT button_width := (width OF radiobutton_metrics) % (downscale OF radiobutton_metrics);
+            INT array_width := (n_buttons OF rb) * button_width;
+            FOR i TO n_boundaries
+            DO
+               valid_boundaries[i] := (x OF rb) - array_width % 2 + (i-1) * button_width
+            OD;
+            boundaries := valid_boundaries
+         )
+      OUT
+         put(stand error, ("get_radiobutton_x_boundaries(): Component [",tag,"] is not a RADIOBUTTON.",newline))
+      ESAC
+   FI;
+   done:
+   boundaries
+);
+
 
 # --------------- #
 # NUMERIC DISPLAY #
@@ -1427,8 +1466,8 @@ PROC instantiate_keypad = (PIPE p, REF KEYPAD kp) VOID:
    CO put(stand error, ("button w/h = ",button_width,button_height,newline)); CO
    INT array_width := 4 * button_width;
    INT array_height := 4 * button_height;
-   INT xc := (x OF kp); CO - array_width % 2;CO
-   INT yc := (y OF kp); CO - array_height % 2;CO
+   INT xc := (x OF kp) + button_width % 2;
+   INT yc := (y OF kp) + button_height % 2;
 
    ds_set_colour_rgba(p, 0, 0, 0, 255); # Need black digits. #
 
@@ -1605,25 +1644,32 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 # so they are evenly distributed with equal gaps across total_width. The same logic #
 # applies to vertical distribution with heights instead of widths, #
 # If the arrangement won't fit in total_width, return over=TRUE, else FALSE. #
-PROC evenly_distribute = (INT total_width, []INT button_counts, INT button_width, INT margin,
-                          REF BOOL over) []INT:
+PROC evenly_distribute = (GEOMETRY g, []INT button_counts, INT button_width,
+                          BOOL flush_lr, REF BOOL over) []INT:
 (
+   INT total_width := width OF g;
+   INT margin := xc OF g - width OF g % 2;
    INT n_button_groups := ELEMS button_counts;
    [n_button_groups]INT centers;
    INT total_buttons := 0;
    FOR i TO n_button_groups
    DO
-      total_buttons +:= button_counts[i]
+      total_buttons +:= button_counts[i];
+      centers[i] := -1
    OD;
-   INT gap := (total_width - (button_width * total_buttons)) % (n_button_groups + 1);
+   INT u_button_groups := (flush_lr | n_button_groups - 1 | n_button_groups + 1);
+   (u_button_groups = 0 | fail);
+   INT gap := (total_width - (button_width * total_buttons)) % u_button_groups;
    INT p := 0;
    FOR i TO n_button_groups
    DO
-      centers[i] := p + gap + (button_counts[i] * button_width) % 2;
+      INT ugap := (flush_lr AND (i=1 CO OR i=n_button_groups CO) | 0 | gap);
+      centers[i] := p + ugap + (button_counts[i] * button_width) % 2;
       p := centers[i] + (button_counts[i] * button_width) % 2;
-      over := (p + gap) > total_width
+      over := (p + ugap) > total_width
    OD;
    FOR i TO n_button_groups DO centers[i] +:= margin OD;
+   fail:
    centers
 );
 
@@ -1816,23 +1862,37 @@ PROC check_old_tag = (STRING tag) INT:
 );
 
 # Get position and size information for a named component. #
-PROC get_geometry = (STRING tag, REF INT xc, yc, width, height) BOOL:
+PROC get_geometry = (STRING tag, REF GEOMETRY g) BOOL:
 (
    BOOL return_value := TRUE;
-   xc := yc := width := height := 0;
+   g := (0, 0, 0, 0);
    USERPROC someproc;
    INT i_component := find_component(tag, someproc);
    (i_component = 0 | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)); 
                       return_value := FALSE; fail);
    CASE components[i_component]
    IN
-      (REF PUSHBUTTON pb): (xc := x OF pb; yc := y OF pb; get_dimensions_pushbutton(width,height)),
-      (REF TOGGLEBUTTON tb): (xc := x OF tb; yc := y OF tb; get_dimensions_togglebutton(width,height)),
-      (REF RADIOBUTTON rb): (xc := x OF rb; yc := y OF rb; get_dimensions_radiobutton(rb,width,height,FALSE)),
-      (REF NUMERICDISPLAY nd): (xc := x OF nd; yc := y OF nd; get_dimensions_numericdisplay(nd,width,height)),
-      (REF KNOB kb): (xc := x OF kb; yc := y OF kb; get_dimensions_knob(width,height)),
-      (REF SELECTOR sb): (xc := x OF sb; yc := y OF sb; get_dimensions_selector(width,height)),
-      (REF KEYPAD kp): (xc := x OF kp; yc := y OF kp; get_dimensions_keypad(width,height)),
+      (REF PUSHBUTTON pb): (xc OF g := x OF pb; 
+                            yc OF g := y OF pb; 
+                            get_dimensions_pushbutton(width OF g, height OF g)),
+      (REF TOGGLEBUTTON tb): (xc OF g := x OF tb; 
+                              yc OF g := y OF tb; 
+                              get_dimensions_togglebutton(width OF g, height OF g)),
+      (REF RADIOBUTTON rb): (xc OF g := x OF rb; 
+                             yc OF g := y OF rb; 
+                             get_dimensions_radiobutton(rb, width OF g, height OF g, FALSE)),
+      (REF NUMERICDISPLAY nd): (xc OF g := x OF nd; 
+                                yc OF g := y OF nd; 
+                                get_dimensions_numericdisplay(nd, width OF g, height OF g)),
+      (REF KNOB kb): (xc OF g := x OF kb; 
+                      yc OF g := y OF kb; 
+                      get_dimensions_knob(width OF g, height OF g)),
+      (REF SELECTOR sb): (xc OF g := x OF sb; 
+                          yc OF g := y OF sb; 
+                          get_dimensions_selector(width OF g, height OF g)),
+      (REF KEYPAD kp): (xc OF g := x OF kp; 
+                        yc OF g := y OF kp; 
+                        get_dimensions_keypad(width OF g, height OF g)),
       (REF TIMER tm): (SKIP)
    ESAC;   
    fail:

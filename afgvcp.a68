@@ -1,0 +1,135 @@
+PR read "utility.a68" PR
+PR read "arg_parser.a68" PR
+PR read "vcpgui.a68" PR
+PR read "angelfg.a68" PR
+
+# ============ #
+# MAIN PROGRAM #
+# ============ #
+
+STRING title := "Virtual control panel for the ANGEL DDS function generator. V0.1";
+print((newline,title,newline));
+print(((ELEMS title)*"=",newline));
+print(("Running under Algol 68 Genie 3.12.0",newline));
+
+# Parse command line arguments. These MUST appear after --. #
+REF ARG_PARSE arg_parser := make_arg_parser("Angel Function Generator Virtual Control Panel");
+REF INT device_number := arg_add_int_option(arg_parser, "-d", "--device",
+                                                "Device number.",
+                                                0);
+( NOT parse_args(arg_parser) |
+      put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
+
+# Try to open the device before we do anything with the GUI. #
+REF AFG afg := open_afg(0);
+(AFG_INVALID afg | put(stand error, ("Cannot open function generator. Giving up.", new line));
+                   stop);
+
+# Open and configure the GUI display surface. #
+INT width := 600, height := 250;
+
+PIPE dsurf_pipe = open_dsurf("ANGEL DDS Function Generator", width, height);
+print(("DSURF PID = ", wint(pid OF dsurf_pipe), new line));
+on logical file end(read OF dsurf_pipe, dsurf_end_handler);
+
+read_component_metrics("dsurf.tal");
+ds_load_texture(dsurf_pipe, "dsurf.tal");
+ds_load_font(dsurf_pipe, "LiberationSans-Regular.ttf", 15, 1);
+
+# Define the GUI components. #
+ds_use_main(dsurf_pipe);
+ds_reset_display(dsurf_pipe);
+
+# Background ...  #
+ds_set_colour_rgba(dsurf_pipe, 50, 50, 50, 255);
+ds_clear(dsurf_pipe);
+
+# Numeric display ... Move so the top left of this is 10 pixels from the top left of the window. #
+INT margin = 10;
+ds_set_colour_rgba(dsurf_pipe, 180, 180, 180, 255);
+add_numericdisplay("display", width%2, 65, 0, 6, 0, TRUE);
+VOID(move_component("display", "tl", margin, margin));
+
+# Buttons row 1 #
+# ------------- #
+# Center this single radio button for parameter selection on the numeric display.  #
+GEOMETRY nd_geometry;
+VOID(get_geometry("display", nd_geometry));
+
+# Keep a current y position. Adjust to move between rows. #
+INT y := yc OF nd_geometry + (height OF nd_geometry % 2) + vertical_spacing_buttons(FALSE);
+
+[]INT row1_button_counts = (6);
+INT but_width, but_height;
+get_dimensions_pushbutton(but_width, but_height);
+BOOL too_wide;
+FLEX [1:0]INT centers := evenly_distribute(nd_geometry, row1_button_counts, but_width, FALSE, too_wide) ;
+
+# Parameter radiobutton ...  #
+ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
+ds_set_font(dsurf_pipe, 0);
+add_radiobutton("parameter", 
+                "Vrms,Vpp,dBV,dBu,Hz,kHz", 
+                null_proc, centers[1], y, 1);
+
+# Add labels under the radio button ... #
+y +:= vertical_group_label_spacing;
+ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
+FLEX [1:0]INT x_boundaries := get_radiobutton_x_boundaries("parameter");
+IF ELEMS x_boundaries > 1
+THEN
+   ds_vmark(dsurf_pipe, x_boundaries[1], y, vertical_group_label_spacing%2);
+   ds_vmark(dsurf_pipe, x_boundaries[5], y, vertical_group_label_spacing%2);
+   ds_vmark(dsurf_pipe, x_boundaries[7], y, vertical_group_label_spacing%2);
+   ds_text_in_font(dsurf_pipe, "AMPLITUDE", x_boundaries[3], y, TRUE, 0);
+   ds_text_in_font(dsurf_pipe, "FREQUENCY", x_boundaries[6], y, TRUE, 0)
+FI;
+
+
+# Buttons row 2 #
+# ------------- #
+# Have these occupy the same width as the parameter radio button, aligned left and right with it.  #
+
+y +:= vertical_spacing_buttons(FALSE);
+[]INT row2_button_counts = (3,1);
+GEOMETRY parameter_geometry;
+VOID(get_geometry("parameter", parameter_geometry));
+centers := evenly_distribute(parameter_geometry, row2_button_counts, but_width, TRUE, too_wide) ;
+
+# Waveform radiobutton ...  #
+ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
+ds_set_font(dsurf_pipe, 0);
+add_radiobutton("waveform", 
+                "Sine,Triangle,Square", 
+                null_proc, centers[1], y, 1);
+
+# Power off button ...  #
+ds_set_colour_rgba(dsurf_pipe, 200, 0, 0, 255);
+add_pushbutton("off", "OFF", quit_proc, centers[2], y);
+
+# Labels under the radio button ...  #
+y +:= vertical_group_label_spacing;
+ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
+ds_text_in_font(dsurf_pipe, "WAVEFORM", centers[1], y, TRUE, 0);
+
+# Keypad #
+# ------ #
+# Put this in the middle of the free space to the right of the components already added. #
+
+INT key_width, key_height;
+get_dimensions_keypad(key_width, key_height);
+INT nd_right_edge_x := margin + width OF nd_geometry;
+INT key_xc := (nd_right_edge_x + width) % 2;
+
+ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
+ds_set_font(dsurf_pipe, 0);
+add_keypad("keypad", null_proc, key_xc, height%2, "display");
+
+# Create and run the GUI. #
+instantiate(dsurf_pipe);
+run_event_loop(dsurf_pipe);
+
+# Shut down. #
+end:
+close_dsurf(dsurf_pipe);
+close_afg(afg)
