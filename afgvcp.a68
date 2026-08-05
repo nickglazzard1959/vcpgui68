@@ -3,6 +3,23 @@ PR read "arg_parser.a68" PR
 PR read "vcpgui.a68" PR
 PR read "angelfg.a68" PR
 
+PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+   CASE state
+   IN
+      (REF RADIOBUTTON rb): (
+         (which OF rb = 2 | print(("on",newline)); set_lamp(dsurf_pipe, "lamp", TRUE));
+         (which OF rb = 3 | print(("on",newline)); set_lamp(dsurf_pipe, "lamp", FALSE));
+      )
+   OUT
+      put(stand error, ("Expected a radio button. Got something else!", new line))
+   ESAC
+   FI;
+   FALSE
+);
+
 # ============ #
 # MAIN PROGRAM #
 # ============ #
@@ -41,14 +58,14 @@ ds_use_main(dsurf_pipe);
 ds_reset_display(dsurf_pipe);
 
 # Background ...  #
-ds_set_colour_rgba(dsurf_pipe, 50, 50, 50, 255);
+ui_colour(dsurf_pipe, "background");
 ds_clear(dsurf_pipe);
 
 # Numeric display ... Move so the top left of this is 10 pixels from the top left of the window. #
 INT margin = 10;
-ds_set_colour_rgba(dsurf_pipe, 180, 180, 180, 255);
+ui_colour(dsurf_pipe, "feature");
 add_numericdisplay("display", width%2, 65, 0, 6, 0, TRUE);
-VOID(move_component("display", "tl", margin, margin));
+move_component("display", "tl", margin, margin);
 
 # Buttons row 1 #
 # ------------- #
@@ -66,23 +83,22 @@ BOOL too_wide;
 FLEX [1:0]INT centers := evenly_distribute(nd_geometry, row1_button_counts, but_width, FALSE, too_wide) ;
 
 # Parameter radiobutton ...  #
-ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
-ds_set_font(dsurf_pipe, 0);
+ui_colour_base_font(dsurf_pipe, "button");
 add_radiobutton("parameter", 
-                "Vrms,Vpp,dBV,dBu,Hz,kHz", 
+                "Vrms,mVrms,Vpp,mVpp,dBV,dBu,Hz,kHz", 
                 null_proc, centers[1], y, 1);
 
 # Add labels under the radio button ... #
 y +:= vertical_group_label_spacing;
-ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
+ui_colour(dsurf_pipe, "label");
 FLEX [1:0]INT x_boundaries := get_radiobutton_x_boundaries("parameter");
 IF ELEMS x_boundaries > 1
 THEN
    ds_vmark(dsurf_pipe, x_boundaries[1], y, vertical_group_label_spacing%2);
-   ds_vmark(dsurf_pipe, x_boundaries[5], y, vertical_group_label_spacing%2);
    ds_vmark(dsurf_pipe, x_boundaries[7], y, vertical_group_label_spacing%2);
-   ds_text_in_font(dsurf_pipe, "AMPLITUDE", x_boundaries[3], y, TRUE, 0);
-   ds_text_in_font(dsurf_pipe, "FREQUENCY", x_boundaries[6], y, TRUE, 0)
+   ds_vmark(dsurf_pipe, x_boundaries[9], y, vertical_group_label_spacing%2);
+   ds_text_in_font(dsurf_pipe, "AMPLITUDE", x_boundaries[4], y, TRUE, 0);
+   ds_text_in_font(dsurf_pipe, "FREQUENCY", x_boundaries[8], y, TRUE, 0)
 FI;
 
 
@@ -93,23 +109,22 @@ FI;
 y +:= vertical_spacing_buttons(FALSE);
 []INT row2_button_counts = (3,1);
 GEOMETRY parameter_geometry;
-VOID(get_geometry("parameter", parameter_geometry));
+get_geometry("parameter", parameter_geometry);
 centers := evenly_distribute(parameter_geometry, row2_button_counts, but_width, TRUE, too_wide) ;
 
 # Waveform radiobutton ...  #
-ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
-ds_set_font(dsurf_pipe, 0);
+ui_colour_base_font(dsurf_pipe, "button");
 add_radiobutton("waveform", 
                 "Sine,Triangle,Square", 
-                null_proc, centers[1], y, 1);
+                parameter_proc, centers[1], y, 1);
 
 # Power off button ...  #
-ds_set_colour_rgba(dsurf_pipe, 200, 0, 0, 255);
+ui_colour(dsurf_pipe, "warning");
 add_pushbutton("off", "OFF", quit_proc, centers[2], y);
 
 # Labels under the radio button ...  #
 y +:= vertical_group_label_spacing;
-ds_set_colour_rgba(dsurf_pipe, 255, 255, 255, 255);
+ui_colour(dsurf_pipe, "label");
 ds_text_in_font(dsurf_pipe, "WAVEFORM", centers[1], y, TRUE, 0);
 
 # Keypad #
@@ -121,9 +136,15 @@ get_dimensions_keypad(key_width, key_height);
 INT nd_right_edge_x := margin + width OF nd_geometry;
 INT key_xc := (nd_right_edge_x + width) % 2;
 
-ds_set_colour_rgba(dsurf_pipe, 0, 0, 0, 255);
-ds_set_font(dsurf_pipe, 0);
+ui_colour_base_font(dsurf_pipe, "button");
 add_keypad("keypad", null_proc, key_xc, height%2, "display");
+
+# Move the keypad so the top edge is margin from the window top. #
+GEOMETRY keypad_geometry;
+get_geometry("keypad", keypad_geometry);
+move_component("keypad", "tl", key_xc-(width OF keypad_geometry%2), margin);
+
+add_lamp("lamp", 500, y, FALSE);
 
 # Create and run the GUI. #
 instantiate(dsurf_pipe);

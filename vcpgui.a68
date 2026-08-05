@@ -387,8 +387,10 @@ PROC ds_stop_timer = ( PIPE p ) VOID:
 #  TINY UI CODE  #
 # ============== #
 
+# User procedure ('callback') definition. #
 MODE USERPROC = PROC (STRING, STRING, ANYBUTTONREF) BOOL;
 
+# Components. #
 MODE PUSHBUTTON = STRUCT( STRING tag, STRING label, USERPROC proc, INT x, y, RGBACOLOUR c );
 MODE TOGGLEBUTTON = STRUCT( STRING tag, STRING label, USERPROC proc, INT x, y, BOOL state,
                           RGBACOLOUR c );
@@ -403,12 +405,14 @@ MODE KEYPAD = STRUCT( STRING tag, USERPROC proc, INT x, y, INT ivalue, isign, id
 MODE NUMERICDISPLAY = STRUCT( STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup,
                               STRING units, STRING function, STRING range, RGBACOLOUR c );
 MODE TIMER = STRUCT( STRING tag, USERPROC proc, INT milliseconds );
+MODE LAMP = STRUCT( STRING tag, INT x, y, BOOL state, RGBACOLOUR c );
 
 MODE ANYBUTTONREF = UNION(REF PUSHBUTTON, REF TOGGLEBUTTON, REF RADIOBUTTON, REF NUMERICDISPLAY,
-                         REF KNOB, REF SELECTOR, REF KEYPAD, REF TIMER);
+                         REF KNOB, REF SELECTOR, REF KEYPAD, REF TIMER, REF LAMP);
 
 FLEX [1:0] ANYBUTTONREF components;
 
+# Component layouts. #
 MODE PUSHBUTTON_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE TOGGLEBUTTON_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE RADIOBUTTON_LAYOUT = STRUCT( INT width, INT height, INT downscale );
@@ -416,6 +420,7 @@ MODE KNOB_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE SELECTOR_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE KEYPAD_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE NUMERICDISPLAY_LAYOUT = STRUCT( INT width, INT height, INT downscale, INT bezel_width );
+MODE LAMP_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 
 # Default component metrics, overridden by TAL file specifications. #
 PUSHBUTTON_LAYOUT pushbutton_metrics := (100, 64, 2);
@@ -425,6 +430,7 @@ KNOB_LAYOUT knob_metrics := (150, 150, 2);
 SELECTOR_LAYOUT selector_metrics := (150, 200, 2);
 KEYPAD_LAYOUT keypad_metrics := (65, 64, 2); # Size of one button. #
 NUMERICDISPLAY_LAYOUT numericdisplay_metrics := (256, 341, 5, 5);
+LAMP_LAYOUT lamp_metrics := (91, 99, 6);
 
 # Geometric information on a component. (xc,yc) is the center point. #
 MODE GEOMETRY = STRUCT( INT xc, yc, width, height );
@@ -436,6 +442,16 @@ PROC add_component = (ANYBUTTONREF component) VOID:
    temp[: UPB components] := components;
    components := temp;
    components[UPB components] := component
+);
+
+# Named colours. Hardwired here for now, at least. #
+MODE NAMED_COLOUR = STRUCT( STRING name, RGBACOLOUR c );
+[]NAMED_COLOUR named_colours = (
+   ("background", (50, 50, 50, 255)), # Background of window. #
+   ("feature", (180, 180, 180, 255)), # Bezel of numeric display, maybe other things. #
+   ("button", (0, 0, 0, 255)),        # Text in buttons. Needs to be dark. #
+   ("label", (255, 255, 255, 255)),   # Text / graphics drawn on background. #
+   ("warning", (200, 0, 0, 255))      # Warning text in buttons. #
 );
 
 COMMENT
@@ -1469,7 +1485,7 @@ PROC instantiate_keypad = (PIPE p, REF KEYPAD kp) VOID:
    INT xc := (x OF kp) + button_width % 2;
    INT yc := (y OF kp) + button_height % 2;
 
-   ds_set_colour_rgba(p, 0, 0, 0, 255); # Need black digits. #
+   ds_set_colour_rgba_struct(p, c OF kp);
 
    FOR i TO 4
    DO
@@ -1635,6 +1651,74 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 );
 
 
+# ---- #
+# LAMP #
+# ---- #
+
+# Read layout data for a lamp from a texture atlas file. #
+PROC read_lamp_metrics = (STRING talfile) VOID:
+(
+   [3]INT data := (0,0,0);
+   ( get_metric_info(talfile, "##lamp", data) = 3 | pushbutton_metrics := (data[1], data[2], data[3]))
+); 
+
+# Make a lamp. #
+PROC make_lamp = (STRING tag, INT x, y, BOOL state) REF LAMP:
+(
+   REF LAMP new = HEAP LAMP;
+   new := (tag, x, y, state, c OF dstate);
+   new
+);
+
+# Add a lamp to the UI. #
+PROC add_lamp = (STRING tag, INT x, y, BOOL state) VOID:
+(
+   (check_new_tag(tag) | add_component( make_lamp(tag, x, y, state) ))
+);
+
+# Get the dimensions (width/height) of a lamp. #
+PROC get_dimensions_lamp = (REF INT width, height) VOID:
+(
+   width := (width OF pushbutton_metrics) % (downscale OF pushbutton_metrics);
+   height := (height OF pushbutton_metrics) % (downscale OF pushbutton_metrics)
+);
+
+# Put the drawing commands for a lamp in the DSURF display list. #
+PROC instantiate_lamp = (PIPE p, REF LAMP lp) VOID:
+(
+   push_dstate;
+   STRING which_lamp := (state OF lp | "lamp-on" | "lamp-off");
+   ds_set_colour_rgba_struct(p, c OF lp);
+   ds_sub_texture(p, which_lamp, x OF lp, y OF lp, downscale OF lamp_metrics, TRUE, 0, 0, 0);
+   ds_show_display(p);
+   pop_dstate
+);
+
+#  Update the appearance of a lamp. Does nothing. #
+PROC update_lamp = (PIPE p, REF LAMP lp, STRING event) VOID:
+(
+   SKIP
+);
+
+# Set a lamp (turn it on or off). #
+PROC set_lamp = (PIPE p, STRING tag, BOOL state) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF LAMP lp): (
+            state OF lp := state;
+            instantiate_lamp(p, lp)
+         )
+      OUT
+         put(stand error, ("set_lamp(): Component [",tag,"] is not a LAMP.",newline))
+      ESAC
+   FI
+);
+
+
 # =========== #
 # LAYOUT AIDS #
 # =========== #
@@ -1780,7 +1864,8 @@ PROC instantiate = (PIPE p) VOID:
          (REF KNOB kb): instantiate_knob(p, kb),
          (REF SELECTOR sb): instantiate_selector(p, sb),
          (REF KEYPAD kp): instantiate_keypad(p, kp),
-         (REF TIMER tm): instantiate_timer(p, tm)
+         (REF TIMER tm): instantiate_timer(p, tm),
+         (REF LAMP lp): instantiate_lamp(p, lp)
       ESAC
    OD;
 
@@ -1800,7 +1885,8 @@ PROC update_component = (PIPE p, ANYBUTTONREF component, STRING event, STRING su
       (REF KNOB kb): update_knob(p, kb, event),
       (REF SELECTOR sb): update_selector(p, sb, event),
       (REF KEYPAD kp): update_keypad(p, kp, event, sub_tag),
-      (REF TIMER tm): update_timer(p, tm, event)
+      (REF TIMER tm): update_timer(p, tm, event),
+      (REF LAMP lp): update_lamp(p, lp, event)
    ESAC
 );
 
@@ -1819,11 +1905,12 @@ PROC find_component = (STRING tag, REF USERPROC this_proc) INT:
          (REF PUSHBUTTON pb): (this_tag := tag OF pb; this_proc := proc OF pb),
          (REF TOGGLEBUTTON tb): (this_tag := tag OF tb; this_proc := proc OF tb),
          (REF RADIOBUTTON rb): (this_tag := tag OF rb; this_proc := proc OF rb),
-         (REF NUMERICDISPLAY nd): (this_tag := tag OF nd; this_proc := null_proc),
+         (REF NUMERICDISPLAY nd): (this_tag := tag OF nd; this_proc := null_proc), # null_proc for output only. #
          (REF KNOB kb): (this_tag := tag OF kb; this_proc := proc OF kb),
          (REF SELECTOR sb): (this_tag := tag OF sb; this_proc := proc OF sb),
          (REF KEYPAD kp): (this_tag := tag OF kp; this_proc := proc OF kp),
-         (REF TIMER tm): (this_tag := tag OF tm; this_proc := proc OF tm)
+         (REF TIMER tm): (this_tag := tag OF tm; this_proc := proc OF tm),
+         (REF LAMP lp): (this_tag := tag OF lp; this_proc := null_proc) # null_proc for output only. #
       ESAC;
 
       # If the sought component, return the index of the component and this_proc for that. #
@@ -1862,7 +1949,7 @@ PROC check_old_tag = (STRING tag) INT:
 );
 
 # Get position and size information for a named component. #
-PROC get_geometry = (STRING tag, REF GEOMETRY g) BOOL:
+PROC get_geometry_status = (STRING tag, REF GEOMETRY g) BOOL:
 (
    BOOL return_value := TRUE;
    g := (0, 0, 0, 0);
@@ -1893,15 +1980,24 @@ PROC get_geometry = (STRING tag, REF GEOMETRY g) BOOL:
       (REF KEYPAD kp): (xc OF g := x OF kp; 
                         yc OF g := y OF kp; 
                         get_dimensions_keypad(width OF g, height OF g)),
-      (REF TIMER tm): (SKIP)
+      (REF TIMER tm): (SKIP),
+      (REF LAMP lp): (xc OF g := x OF lp; 
+                      yc OF g := y OF lp; 
+                      get_dimensions_lamp(width OF g, height OF g))
    ESAC;   
    fail:
    return_value
 );
 
+# As get_geometry_status(), but ignore status. #
+PROC get_geometry = (STRING tag, REF GEOMETRY g) VOID:
+(
+   VOID(get_geometry_status(tag, g))
+);
+
 # Move the location of a named component so that 'corner' is at (xc,yc). #
-# Cornet must be one of bl (bottom left), tl (top left), br (bottom right), tr (top right), c (center) #
-PROC move_component = (STRING tag, STRING corner, INT xc, yc) BOOL:
+# Corner must be one of bl (bottom left), tl (top left), br (bottom right), tr (top right), c (center) #
+PROC move_component_status = (STRING tag, STRING corner, INT xc, yc) BOOL:
 (
    INT xnew, ynew, width, height;
    BOOL return_value := TRUE;
@@ -1925,10 +2021,40 @@ PROC move_component = (STRING tag, STRING corner, INT xc, yc) BOOL:
                           corner_to_center(corner, xc, yc, width, height, x OF sb, y OF sb)),
       (REF KEYPAD kp): (get_dimensions_keypad(width,height);
                         corner_to_center(corner, xc, yc, width, height, x OF kp, y OF kp)),
-      (REF TIMER tm): (SKIP)
+      (REF TIMER tm): (SKIP),
+      (REF LAMP lp): (get_dimensions_lamp(width,height);
+                      corner_to_center(corner, xc, yc, width, height, x OF lp, y OF lp))
    ESAC;
    fail:
    return_value
+);
+
+# As move_component_status(), but ignore status. #
+PROC move_component = (STRING tag, STRING corner, INT xc, yc) VOID:
+(
+   VOID(move_component_status(tag, corner, xc, yc))
+);
+
+# Named UI colour selection. #
+PROC ui_colour = (PIPE p, STRING colour_name) VOID:
+(
+   FOR i TO ELEMS named_colours
+   DO
+      (colour_name = name OF named_colours[i] | ds_set_colour_rgba_struct(p, c OF named_colours[i]); done)
+   OD;
+
+   # Default to black silently if colour_name not found. #
+   ds_set_colour_rgba(p, 0, 0, 0, 255);
+
+   done:
+   SKIP
+);
+
+# Named colour selection and change to base font (0). #
+PROC ui_colour_base_font = (PIPE p, STRING colour_name) VOID:
+(
+   ui_colour(p, colour_name);
+   ds_set_font(p, 0)
 );
 
 # Run the event loop. #
