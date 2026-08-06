@@ -7,6 +7,8 @@
 ##knob 150 150 2
 ##selector 150 200 2
 ##keypad 65 64 2
+##lamp 91 99 6
+##timedisplay 256 341 5 5 128 170
 #
 dsurf.png
 #

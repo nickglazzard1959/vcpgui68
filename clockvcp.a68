@@ -1,0 +1,77 @@
+PR read "utility.a68" PR
+PR read "arg_parser.a68" PR
+PR read "vcpgui.a68" PR
+
+PROC tick_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   CASE state
+   IN
+      (REF TIMER tm): (
+         [8]INT itime := local time;
+         set_timedisplay(gui, "display", itime[4], itime[5], itime[6]);
+         set_timer(gui, "timer", TRUE, FALSE) # Restart the timer. #
+      )
+   OUT
+      put(stand error, ("Expected a timer. Got something else!", new line))
+   ESAC;
+   FALSE
+);
+
+# ============ #
+# MAIN PROGRAM #
+# ============ #
+
+STRING title := "Simple Clock. V0.1";
+print((newline,title,newline));
+print(((ELEMS title)*"=",newline));
+print(("Running under Algol 68 Genie 3.12.0",newline));
+
+# Open and configure the GUI display surface. #
+INT width := 600, height := 250;
+PIPE gui := open_gui("Clock", width, height);
+
+# Get current local time. #
+[8]INT itime := local time;
+
+# Add a timer, expiring each second. #
+add_timer("timer", tick_proc, 1000);
+
+# Time display. #
+INT margin = 10;
+ui_colour(gui, "feature");
+add_timedisplay("display", width%2, 65, itime[4], itime[5], itime[6]);
+move_component("display", "tl", margin, margin);
+
+# Buttons, centered on time display. #
+GEOMETRY td_geometry;
+get_geometry("display", td_geometry);
+
+# Keep a current y position. Adjust to move between rows. #
+INT y := yc OF td_geometry + (height OF td_geometry % 2) + vertical_spacing_buttons(FALSE);
+
+[]INT row1_button_counts = (5,1);
+INT but_width, but_height;
+get_dimensions_pushbutton(but_width, but_height);
+BOOL too_wide;
+FLEX [1:0]INT centers := evenly_distribute(td_geometry, row1_button_counts, but_width, TRUE, too_wide);
+
+# Location radiobutton. #
+ui_colour_base_font(gui, "button");
+add_radiobutton("location", 
+                "Local,UTC,Alt 1,Alt 2,Alt 3", 
+                null_proc, centers[1], y, 1);
+
+# Power off button ...  #
+ui_colour(gui, "warning");
+add_pushbutton("off", "OFF", quit_proc, centers[2], y);
+
+#  Start the timer. #
+set_timer(gui, "timer", TRUE, FALSE);
+
+# Create and run the GUI. #
+instantiate(gui);
+run_event_loop(gui);
+
+# Shut down. #
+end:
+close_dsurf(gui);

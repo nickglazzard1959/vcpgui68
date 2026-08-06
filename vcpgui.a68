@@ -406,9 +406,10 @@ MODE NUMERICDISPLAY = STRUCT( STRING tag, INT x, y, INT value, INT n_digits, INT
                               STRING units, STRING function, STRING range, RGBACOLOUR c );
 MODE TIMER = STRUCT( STRING tag, USERPROC proc, INT milliseconds );
 MODE LAMP = STRUCT( STRING tag, INT x, y, BOOL state, RGBACOLOUR c );
+MODE TIMEDISPLAY = STRUCT( STRING tag, INT x, y, INT h, m, s, RGBACOLOUR c );
 
 MODE ANYBUTTONREF = UNION(REF PUSHBUTTON, REF TOGGLEBUTTON, REF RADIOBUTTON, REF NUMERICDISPLAY,
-                         REF KNOB, REF SELECTOR, REF KEYPAD, REF TIMER, REF LAMP);
+                         REF KNOB, REF SELECTOR, REF KEYPAD, REF TIMER, REF LAMP, REF TIMEDISPLAY);
 
 FLEX [1:0] ANYBUTTONREF components;
 
@@ -421,6 +422,7 @@ MODE SELECTOR_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE KEYPAD_LAYOUT = STRUCT( INT width, INT height, INT downscale );
 MODE NUMERICDISPLAY_LAYOUT = STRUCT( INT width, INT height, INT downscale, INT bezel_width );
 MODE LAMP_LAYOUT = STRUCT( INT width, INT height, INT downscale );
+MODE TIMEDISPLAY_LAYOUT = STRUCT( INT width, INT height, INT downscale, INT bezel_width, INT colon_w, colon_h );
 
 # Default component metrics, overridden by TAL file specifications. #
 PUSHBUTTON_LAYOUT pushbutton_metrics := (100, 64, 2);
@@ -431,6 +433,7 @@ SELECTOR_LAYOUT selector_metrics := (150, 200, 2);
 KEYPAD_LAYOUT keypad_metrics := (65, 64, 2); # Size of one button. #
 NUMERICDISPLAY_LAYOUT numericdisplay_metrics := (256, 341, 5, 5);
 LAMP_LAYOUT lamp_metrics := (91, 99, 6);
+TIMEDISPLAY_LAYOUT timedisplay_metrics := (256, 341, 5, 5, 128, 170);
 
 # Geometric information on a component. (xc,yc) is the center point. #
 MODE GEOMETRY = STRUCT( INT xc, yc, width, height );
@@ -615,7 +618,7 @@ PROC update_togglebutton = (PIPE p, REF TOGGLEBUTTON tb, STRING event) VOID:
       ds_remove_at(p, x OF tb, y OF tb);
       ds_sub_texture(p, which_button, x OF tb, y OF tb, downscale OF togglebutton_metrics, TRUE, 0, 0, 0);
       ds_text_in_font(p, label OF tb, x OF tb, y OF tb, TRUE, (height OF togglebutton_metrics) % 12);
-      ds_show_display(dsurf_pipe);
+      ds_show_display(p);
       pop_dstate
    FI
 );
@@ -1414,7 +1417,7 @@ PROC update_selector = (PIPE p, REF SELECTOR sb, STRING event) VOID:
       ds_set_colour_rgba_struct(p, c OF sb);
       ds_remove_at(p, x OF sb, y OF sb);
       ds_sub_texture(p, "knob-pointer", x OF sb, y OF sb, downscale OF selector_metrics, TRUE, angle, xc, yc);
-      ds_show_display(dsurf_pipe);
+      ds_show_display(p);
       pop_dstate
    FI
 );
@@ -1659,7 +1662,7 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 PROC read_lamp_metrics = (STRING talfile) VOID:
 (
    [3]INT data := (0,0,0);
-   ( get_metric_info(talfile, "##lamp", data) = 3 | pushbutton_metrics := (data[1], data[2], data[3]))
+   ( get_metric_info(talfile, "##lamp", data) = 3 | lamp_metrics := (data[1], data[2], data[3]))
 ); 
 
 # Make a lamp. #
@@ -1694,10 +1697,11 @@ PROC instantiate_lamp = (PIPE p, REF LAMP lp) VOID:
    pop_dstate
 );
 
-#  Update the appearance of a lamp. Does nothing. #
-PROC update_lamp = (PIPE p, REF LAMP lp, STRING event) VOID:
+#  Update the appearance of a lamp. Remove existing item for the lamp then instantiate. #
+PROC update_lamp = (PIPE p, REF LAMP lp) VOID:
 (
-   SKIP
+   ds_remove_at(p, x OF lp, y OF lp);
+   instantiate_lamp(p, lp)
 );
 
 # Set a lamp (turn it on or off). #
@@ -1710,10 +1714,160 @@ PROC set_lamp = (PIPE p, STRING tag, BOOL state) VOID:
       IN
          (REF LAMP lp): (
             state OF lp := state;
-            instantiate_lamp(p, lp)
+            update_lamp(p, lp)
          )
       OUT
          put(stand error, ("set_lamp(): Component [",tag,"] is not a LAMP.",newline))
+      ESAC
+   FI
+);
+
+
+# ------------ #
+# TIME DISPLAY #
+# ------------ #
+
+# Read layout data for a time display from a texture atlas file. #
+PROC read_timedisplay_metrics = (STRING talfile) VOID:
+(
+   [6]INT data := (0,0,0,0,0,0);
+   ( get_metric_info(talfile, "##timedisplay", data) = 6 | 
+         timedisplay_metrics := (data[1], data[2], data[3], data[4], data[5], data[6]))
+);
+
+# Make a time display. #
+PROC make_timedisplay = (STRING tag, INT x, y, INT h, m, s) REF TIMEDISPLAY:
+(
+   REF TIMEDISPLAY new = HEAP TIMEDISPLAY;
+   new := (tag, x, y, h, m, s, c OF dstate);
+   new
+);
+
+# Add a time display. #
+PROC add_timedisplay = (STRING tag, INT x, y, INT h, m, s) VOID:
+(
+   (check_new_tag(tag) | add_component( make_timedisplay(tag, x, y, h, m, s) ))
+);
+
+# Calculate layout parameters for a time display. #
+PROC calc_time_layout = (REF TIMEDISPLAY td, REF INT digit_width, digit_height,
+                         colon_width, array_width, xc, yc) VOID:
+(
+   digit_width := (width OF timedisplay_metrics) % (downscale OF timedisplay_metrics);
+   digit_height := (height OF timedisplay_metrics) % (downscale OF timedisplay_metrics);
+   colon_width := (colon_w OF timedisplay_metrics) % (downscale OF timedisplay_metrics);
+   array_width := 6 * digit_width + 2 * colon_width;
+   xc := (x OF td) - array_width % 2 + digit_width % 2;
+   yc := (y OF td)
+);
+
+# Calculate corners of a bezel rectangle for a time display. Same logic as numeric display. #
+PROC calc_time_bezel = (REF TIMEDISPLAY td, INT digit_width, colon_width, array_width, 
+                        REF INT x1, y1, x2, y2) VOID:
+(
+   x1 := (x OF td) - array_width % 2 - bezel_width OF timedisplay_metrics;
+   y1 := (y OF td) - (height OF timedisplay_metrics % downscale OF timedisplay_metrics) % 2 - 
+         bezel_width OF timedisplay_metrics;
+   x2 := x1 + array_width + 2 * bezel_width OF timedisplay_metrics;
+   y2 := y1 + (height OF timedisplay_metrics % downscale OF timedisplay_metrics) + 
+         2 * bezel_width OF timedisplay_metrics
+);
+
+# Get the dimensions (width/height) of a time display. #
+PROC get_dimensions_timedisplay = (REF TIMEDISPLAY td, REF INT width, height) VOID:
+(
+   INT x1, y1, x2, y2, digit_width, digit_height, colon_width, array_width, xc, yc;
+   calc_time_layout(td, digit_width, digit_height, colon_width, array_width, xc, yc);
+   calc_time_bezel(td, digit_width, colon_width, array_width, x1, y1, x2, y2);
+   width := x2 - x1;
+   height := y2 - y1
+);
+
+# Put the drawing commands for a time display in the DSURF display list. #
+PROC instantiate_timedisplay = (PIPE p, REF TIMEDISPLAY td) VOID:
+(
+   PROC draw_one_pair = (INT v, BOOL with_colon) VOID:
+   (
+      INT this_digit := v % 10;
+      ds_sub_texture(p, digit_textures[this_digit+1], xc, yc, downscale OF timedisplay_metrics, TRUE, 0, 0, 0);
+      xc +:= digit_width;
+      this_digit := v - 10 * this_digit;
+      ds_sub_texture(p, digit_textures[this_digit+1], xc, yc, downscale OF timedisplay_metrics, TRUE, 0, 0, 0);
+      xc +:= digit_width;
+      (with_colon |
+            push_dstate;
+            ds_set_colour_rgba(p, 0, 0, 0, 255);
+            ds_rectangle_filled(p,xc-colon_width,yc-digit_height%2,xc+colon_width,yc+digit_height%2-1);
+            pop_dstate;
+            ds_sub_texture(p, "colon", xc-colon_width%2, yc, downscale OF timedisplay_metrics, TRUE, 0, 0, 0);
+            xc +:= colon_width
+      )
+   );
+
+   push_dstate;
+   []STRING digit_textures = ("zero","one","two","three","four","five","six","seven","eight","nine");
+   INT digit_width, digit_height, colon_width, array_width, xc, yc, x1, y1, x2, y2;
+
+   # Calculate coordinates for drawing these things. #
+   calc_time_layout(td, digit_width, digit_height, colon_width, array_width, xc, yc);
+   calc_time_bezel(td, digit_width, colon_width, array_width, x1, y1, x2, y2);
+
+   # Draw a "bezel" using a rounded rectangle. #
+   ds_set_colour_rgba_struct(p, c OF td);
+   ds_rounded_rectangle_filled(p, x1, y1, x2, y2, bezel_width OF timedisplay_metrics );
+
+   # Draw digits in pairs separated by colons. #
+   draw_one_pair(h OF td, TRUE);
+   draw_one_pair(m OF td, TRUE);
+   draw_one_pair(s OF td, FALSE);
+
+   pop_dstate
+);
+
+# Update state of the time display and redraw it,remembering to remove to old version. #
+PROC update_timedisplay = (PIPE p, REF TIMEDISPLAY td, INT h, m, s) VOID:
+(
+   INT digit_width, digit_height, colon_width, array_width, xc, yc, x1, y1, x2, y2;
+   calc_time_layout(td, digit_width, digit_height, colon_width, array_width, xc, yc);
+   calc_time_bezel(td, digit_width, colon_width, array_width, x1, y1, x2, y2);
+
+   # Remove the "bezel". #
+   ds_remove_at(p, x1, y1);
+
+   # Remove the digits. #
+   ds_remove_at(p, xc, yc); xc +:= digit_width;
+   ds_remove_at(p, xc, yc); xc +:= digit_width;
+   ds_remove_at(p, xc-colon_width, yc-digit_height%2); # Remove filler rectangle too. #
+   ds_remove_at(p, xc-colon_width%2, yc); xc +:= colon_width;
+   ds_remove_at(p, xc, yc); xc +:= digit_width;
+   ds_remove_at(p, xc, yc); xc +:= digit_width;
+   ds_remove_at(p, xc-colon_width, yc-digit_height%2); # Remove filler rectangle too. #
+   ds_remove_at(p, xc-colon_width%2, yc); xc +:= colon_width;
+   ds_remove_at(p, xc, yc); xc +:= digit_width;
+   ds_remove_at(p, xc, yc); xc +:= digit_width;
+
+   # Update state. #
+   h OF td := h;
+   m OF td := m;
+   s OF td := s;
+
+   # Insert the modified drawings. #
+   instantiate_timedisplay(p, td)
+);
+
+# Set the contents of a time display. #
+PROC set_timedisplay = (PIPE p, STRING tag, INT h, m, s) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF TIMEDISPLAY td): (
+            update_timedisplay(p, td, h, m, s)
+         )
+      OUT
+         put(stand error,("set_timedisplay(): Component [",tag,"] is not a TIMEDISPLAY.",newline))
       ESAC
    FI
 );
@@ -1847,7 +2001,9 @@ PROC read_component_metrics = (STRING talfile) VOID:
    read_numericdisplay_metrics(talfile);
    read_knob_metrics(talfile);
    read_selector_metrics(talfile);
-   read_keypad_metrics(talfile)
+   read_keypad_metrics(talfile);
+   read_lamp_metrics(talfile);
+   read_timedisplay_metrics(talfile)
 );
 
 # Instantiate all defined components (put drawing cmds in DSURF display list). #
@@ -1865,7 +2021,8 @@ PROC instantiate = (PIPE p) VOID:
          (REF SELECTOR sb): instantiate_selector(p, sb),
          (REF KEYPAD kp): instantiate_keypad(p, kp),
          (REF TIMER tm): instantiate_timer(p, tm),
-         (REF LAMP lp): instantiate_lamp(p, lp)
+         (REF LAMP lp): instantiate_lamp(p, lp),
+         (REF TIMEDISPLAY td): instantiate_timedisplay(p, td)
       ESAC
    OD;
 
@@ -1874,7 +2031,7 @@ PROC instantiate = (PIPE p) VOID:
    ds_show_display(p)
 );
 
-# Update the appearance and state of a component. #
+# Update the appearance and state of a component. Output only components need not he handled here. #
 PROC update_component = (PIPE p, ANYBUTTONREF component, STRING event, STRING sub_tag) VOID:
 (
    CASE component
@@ -1885,8 +2042,7 @@ PROC update_component = (PIPE p, ANYBUTTONREF component, STRING event, STRING su
       (REF KNOB kb): update_knob(p, kb, event),
       (REF SELECTOR sb): update_selector(p, sb, event),
       (REF KEYPAD kp): update_keypad(p, kp, event, sub_tag),
-      (REF TIMER tm): update_timer(p, tm, event),
-      (REF LAMP lp): update_lamp(p, lp, event)
+      (REF TIMER tm): update_timer(p, tm, event)
    ESAC
 );
 
@@ -1910,7 +2066,8 @@ PROC find_component = (STRING tag, REF USERPROC this_proc) INT:
          (REF SELECTOR sb): (this_tag := tag OF sb; this_proc := proc OF sb),
          (REF KEYPAD kp): (this_tag := tag OF kp; this_proc := proc OF kp),
          (REF TIMER tm): (this_tag := tag OF tm; this_proc := proc OF tm),
-         (REF LAMP lp): (this_tag := tag OF lp; this_proc := null_proc) # null_proc for output only. #
+         (REF LAMP lp): (this_tag := tag OF lp; this_proc := null_proc), # null_proc for output only. #
+         (REF TIMEDISPLAY td): (this_tag := tag OF td; this_proc := null_proc) # null_proc for output only. #
       ESAC;
 
       # If the sought component, return the index of the component and this_proc for that. #
@@ -1983,7 +2140,10 @@ PROC get_geometry_status = (STRING tag, REF GEOMETRY g) BOOL:
       (REF TIMER tm): (SKIP),
       (REF LAMP lp): (xc OF g := x OF lp; 
                       yc OF g := y OF lp; 
-                      get_dimensions_lamp(width OF g, height OF g))
+                      get_dimensions_lamp(width OF g, height OF g)),
+      (REF TIMEDISPLAY td): (xc OF g := x OF td; 
+                             yc OF g := y OF td; 
+                             get_dimensions_timedisplay(td, width OF g, height OF g))
    ESAC;   
    fail:
    return_value
@@ -2023,7 +2183,9 @@ PROC move_component_status = (STRING tag, STRING corner, INT xc, yc) BOOL:
                         corner_to_center(corner, xc, yc, width, height, x OF kp, y OF kp)),
       (REF TIMER tm): (SKIP),
       (REF LAMP lp): (get_dimensions_lamp(width,height);
-                      corner_to_center(corner, xc, yc, width, height, x OF lp, y OF lp))
+                      corner_to_center(corner, xc, yc, width, height, x OF lp, y OF lp)),
+      (REF TIMEDISPLAY td): (get_dimensions_timedisplay(td,width,height);
+                             corner_to_center(corner, xc, yc, width, height, x OF td, y OF td))
    ESAC;
    fail:
    return_value
@@ -2055,6 +2217,29 @@ PROC ui_colour_base_font = (PIPE p, STRING colour_name) VOID:
 (
    ui_colour(p, colour_name);
    ds_set_font(p, 0)
+);
+
+# Higher level function to start DSURF and do 'standard' things. #
+PROC open_gui = (STRING title, INT width, height) PIPE:
+(
+   PIPE gui_pipe := open_dsurf(title, width, height);
+   print(("DSURF PID = ", wint(pid OF gui_pipe), new line));
+   on logical file end(read OF gui_pipe, dsurf_end_handler);
+
+   read_component_metrics("dsurf.tal");
+   ds_load_texture(gui_pipe, "dsurf.tal");
+   ds_load_font(gui_pipe, "LiberationSans-Regular.ttf", 15, 1);
+
+   # Use 'main' display list initially for 'static' elements. #
+   # instantiate() switches to 'overlay' list.  #
+   ds_use_main(gui_pipe);
+   ds_reset_display(gui_pipe);
+
+   # Background ...  #
+   ui_colour(gui_pipe, "background");
+   ds_clear(gui_pipe);
+
+   gui_pipe
 );
 
 # Run the event loop. #

@@ -147,6 +147,9 @@ typedef struct
   DISPLAY_LIST* olist; // Overlay display list.
 } THREAD_DATA;
 
+// One global pointing to the SDL renderer. Used in read_thread() to ensure display is updated.
+SDL_Renderer *g_renderer_pointer = NULL;
+
 // Define a class to play a sound from a WAV file using SDL2 calls.
 #define MUS_PATH "/home/nick/gitprojects/vcpgui68/clicky.wav"
 class PlayWAVSound
@@ -301,8 +304,13 @@ int read_thread( void* data )
                                     dstate_p->cmdmap,
                                     args[0], args[1] );
         }
-        else
+        else{
+          if( string_input_line == "$*show_display_sync$\n" ){  // Ensure drawn buffer is visible now.
+            if( NULL != g_renderer_pointer )                    // but also add it to the display list!
+              SDL_RenderPresent(g_renderer_pointer);            // This overkill seems to work best so far.
+          }
           clist_p->prims.push_back(string_input_line);   // Add the primitive to the display list.
+        }
         
         if( SDL_UnlockMutex(dlist_p->mutex) < 0 ){
           SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
@@ -1326,6 +1334,7 @@ int main (int ArgCount, char **Args)
                     "Couldn't create window and renderer: %s", SDL_GetError());
     return 1;
   }
+  g_renderer_pointer = renderer; // Global copy of renderer for use in read_thread() (sigh). 
   if( TTF_Init() != 0 ){
     SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
                     "Unable to initialize TTF: %s", SDL_GetError());
@@ -1511,6 +1520,7 @@ int main (int ArgCount, char **Args)
       SDL_RenderPresent(renderer);
     }
 
+    // Optionally monitor display list growth. * CRITICAL FOR DEBUGGING REMOVE BUGS. *
     if( dstate.debug_mode ){
       fprintf(stderr, "CUR mn num_prims = %ld\n", dlist.prims.size());
       fprintf(stderr, "CUR ov num_prims = %ld\n", olist.prims.size());
