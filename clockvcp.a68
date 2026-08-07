@@ -17,6 +17,23 @@ PROC tick_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    FALSE
 );
 
+PROC lab_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF RADIOBUTTON rb): (
+            (get_radiobutton_sel_label(rb) = "Alt 1" | 
+                  change_radiobutton_label(gui, tag, "Alt 1", "Hello"))
+         )
+      OUT
+         put(stand error, ("Expected a radio button. Got something else!", new line))
+      ESAC
+   FI;
+   FALSE
+);
+
 # ============ #
 # MAIN PROGRAM #
 # ============ #
@@ -59,7 +76,7 @@ FLEX [1:0]INT centers := evenly_distribute(td_geometry, row1_button_counts, but_
 ui_colour_base_font(gui, "button");
 add_radiobutton("location", 
                 "Local,UTC,Alt 1,Alt 2,Alt 3", 
-                null_proc, centers[1], y, 1);
+                lab_proc, centers[1], y, 1);
 
 # Power off button ...  #
 ui_colour(gui, "warning");

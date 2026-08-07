@@ -68,7 +68,7 @@ PROC send_cmd_afg = (REF AFG afg, STRING cmd) BOOL:
       write_serial_line(p OF afg, cmd);
       CHAR response := read_serial_char(p OF afg);
       (response /= "*" | put(stand error, ("Device response error: ", response, new line)); done);
-      CO sleep(1); CO
+      CO sleep_void(1); CO
       retval := TRUE
    FI;
 

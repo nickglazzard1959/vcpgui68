@@ -15,6 +15,10 @@
 // Build:
 //   g++ -O0 -g dsurf.cpp -o dsurf -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image
 //
+// Warning: Building this -02 on a 2012 Mac Mini with SDL 2.0.14 will give this error:
+//   i965: Failed to submit batchbuffer: Invalid argument
+// which is charming, isn't it? Not optimising seems to fix this! 
+//
 // Nick Glazzard 2026.
 // -------------------
 

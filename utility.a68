@@ -6,13 +6,9 @@ Nick Glazzard 2026
 ------------------
 COMMENT
 
-# Minimum width string from integer. #
-PROC wint = (INT i) STRING:
-   whole(i, 0);
-
-# Return a dollar quoted version of a string. #
-PROC doll = (STRING s) STRING:
-   "$"+s+"$";
+# --------------------------- #
+# Sundry and OS related aids. #
+# --------------------------- #
 
 # Pause for test purposes. #
 PROC pause = (STRING s) VOID:
@@ -22,10 +18,212 @@ PROC pause = (STRING s) VOID:
 );
 
 # Sleep. The only approach seems to be to run sleep (1) command. t is in seconds. #
-PROC sleep = (INT t) VOID:
+# ACTUALLY: this seems to be in the standard prelude, but isn't documented. So use that.  #
+# But void the result.  #
+PROC sleep_void = (INT t) VOID:
 (
-   VOID(system("sleep "+wint(t)))
+   VOID(sleep(t))
 );
+
+# Run a command in sh and retrieve the output as a string. Adapted from a68g docs. #
+PROC run_command_get_output = (STRING cmd, REF STRING output) BOOL:
+(
+   BOOL retval := FALSE;
+   IF STRING sh_cmd = " " + cmd + " ; 2>&1";
+      execve output("/bin/sh", ("sh", "-c", sh_cmd), "", output) >= 0
+   THEN
+      retval := TRUE
+   FI;
+   retval
+);
+
+# Return a string denoting the OS being used. #
+PROC get_os_name = STRING:
+(
+   STRING retval := "unknown";
+   STRING uname_output;
+   IF run_command_get_output("uname -a", uname_output)
+   THEN
+      IF string in string("Debian", NIL, uname_output)
+      THEN
+         retval := "debian"
+      ELIF string in string("Darwin", NIL, uname_output)
+      THEN
+         retval := "macos"
+      ELIF string in string("Linux", NIL, uname_output)
+      THEN
+         retval := "linux"
+      FI
+   FI;
+   retval
+);
+
+
+# --------------------- #
+# Time arithmetic aids. #
+# --------------------- #
+
+# Mode for hours, minutes, seconds time. #
+# Handling time is *horrendous* and I really don't want to get very far into it! #
+# But a little bit will be useful, hopefully. #
+MODE HMSTIME = STRUCT( INT h, m, s, delta_days, BOOL negative );
+
+# Print a decently formatted HMSTIME. #
+PROC print_hms = (STRING leader, HMSTIME hms) VOID:
+(
+   print((leader,
+          (negative OF hms | "-" | "+"),
+          " D:",wint(delta_days OF hms),
+          " H:",wint(h OF hms),
+          " M:",wint(m OF hms),
+          " S:",wint(s OF hms),newline))
+);
+
+# Convert hours, minutes, seconds to seconds. #
+PROC hms_to_s = (HMSTIME hms) INT:
+(
+   INT isign := (negative OF hms | -1 | 1);
+   isign * (86 400 * (delta_days OF hms) + 3 600 * (h OF hms) + 60 * (m OF hms) + s OF hms)
+);
+
+# Convert seconds to  hours, minutes, seconds. #
+PROC s_to_hms = (INT s) HMSTIME:
+(
+   HMSTIME hms;
+   INT secs := s;
+   negative OF hms := secs < 0;
+   secs := ABS secs;
+   delta_days OF hms := secs % 86 400;
+   secs -:= (86 400 * delta_days OF hms);
+   h OF hms := secs % 3 600;
+   secs -:= (3 600 * h OF hms);
+   m OF hms := secs % 60;
+   secs -:= (60 * m OF hms);
+   s OF hms := secs;
+   hms
+);
+
+# Get the time according to the system clock as an HMSTIME. Get local time or UTC. #
+PROC get_time_of_day = (BOOL utc) HMSTIME:
+(
+   HMSTIME hms;
+   [8]INT itime := (utc | utc time | local time);
+   make_hms(0, itime[4], itime[5], itime[6])
+);
+
+# Make an HMSTIME from its components. If any component is -ve, the thing is -ve. #
+PROC make_hms = (INT d, h, m, s) HMSTIME:
+(
+   HMSTIME hms;
+   negative OF hms := (d < 0) OR (h < 0) OR (m < 0) OR (s < 0);
+   h OF hms := ABS h;
+   m OF hms := ABS m;
+   s OF hms := ABS s;
+   delta_days OF hms := ABS d;
+   hms
+);
+
+# Define addition for HMSTIME values. #
+OP + = (HMSTIME a, HMSTIME b) HMSTIME:
+(
+   INT secs_a := hms_to_s(a);
+   INT secs_b := hms_to_s(b);
+   INT secs_sum := secs_a + secs_b;
+   s_to_hms(secs_sum)
+);
+
+# Define subtraction for HMSTIME values. #
+OP - = (HMSTIME a, HMSTIME b) HMSTIME:
+(
+   INT secs_a := hms_to_s(a);
+   INT secs_b := hms_to_s(b);
+   INT secs_diff := secs_a - secs_b;
+   s_to_hms(secs_diff)
+);
+
+# Are HMSTIMEs equal? #
+OP = = (HMSTIME a, HMSTIME b) BOOL:
+(
+   INT secs_a := hms_to_s(a);
+   INT secs_b := hms_to_s(b);
+   INT secs_diff := secs_a - secs_b;
+   secs_diff = 0
+);
+
+# Is HMSTIME a less/earlier than b? #
+OP < = (HMSTIME a, HMSTIME b) BOOL:
+(
+   INT secs_a := hms_to_s(a);
+   INT secs_b := hms_to_s(b);
+   INT secs_diff := secs_a - secs_b;
+   secs_diff < 0
+);
+
+# Are HMSTIME a greater/later than b? #
+OP > = (HMSTIME a, HMSTIME b) BOOL:
+(
+   INT secs_a := hms_to_s(a);
+   INT secs_b := hms_to_s(b);
+   INT secs_diff := secs_a - secs_b;
+   secs_diff > 0
+);
+
+
+# ------------------------ #
+# Numeric range etc. aids. #
+# ------------------------ #
+
+# Degrees to radians operator. #
+OP DEGRAD = (REAL a) REAL : (a * pi / 180.0);
+
+# Radians to degrees operator. #
+OP RADDEG = (REAL a) REAL: (180.0 * a / pi);
+
+# Check v is in the range lo to hi inclusive. #
+PROC check_in_range_int = (INT v, lo, hi) BOOL:
+(
+   (v < lo | FALSE | ((v > hi) | FALSE | TRUE))
+);
+
+# Clamp integer values. #
+PROC clamp_int = (INT v, lo, hi) INT:
+(
+   (v < lo | lo | ((v > hi) | hi | v))
+);
+
+PROC clamp_255 = (INT v) INT:
+(
+   clamp_int(v, 0, 255)
+);
+
+# Clamp real values. #
+PROC clamp_real = (REAL v, lo, hi) REAL:
+(
+   (v < lo | lo | ((v > hi) | hi | v))
+);
+
+# Min and max of pairs of integer values. #
+PROC min2int = (INT a, b) INT:
+(
+   (a < b | a | b )
+);
+
+PROC max2int = (INT a, b) INT:
+(
+   (a > b | a | b )
+);
+
+# ----------------------------------------------- #
+# String aids incl extensive string <--> numeric. #
+# ----------------------------------------------- #
+
+# Minimum width string from integer. #
+PROC wint = (INT i) STRING:
+   whole(i, 0);
+
+# Return a dollar quoted version of a string. #
+PROC doll = (STRING s) STRING:
+   "$"+s+"$";
 
 # Split a string on a character to a row of strings. #
 PROC split_string = (STRING s, CHAR c) []STRING:
@@ -145,40 +343,6 @@ PROC string_to_choice_index = (STRING test, STRING choices) INT:
    OD;
    done:
    retval
-);
-
-# Check v is in the range lo to hi inclusive. #
-PROC check_in_range_int = (INT v, lo, hi) BOOL:
-(
-   (v < lo | FALSE | ((v > hi) | FALSE | TRUE))
-);
-
-# Clamp integer values. #
-PROC clamp_int = (INT v, lo, hi) INT:
-(
-   (v < lo | lo | ((v > hi) | hi | v))
-);
-
-PROC clamp_255 = (INT v) INT:
-(
-   clamp_int(v, 0, 255)
-);
-
-# Clamp real values. #
-PROC clamp_real = (REAL v, lo, hi) REAL:
-(
-   (v < lo | lo | ((v > hi) | hi | v))
-);
-
-# Min and max of pairs of integer values. #
-PROC min2int = (INT a, b) INT:
-(
-   (a < b | a | b )
-);
-
-PROC max2int = (INT a, b) INT:
-(
-   (a > b | a | b )
 );
 
 # Check string only contains decimal digits. #
@@ -315,7 +479,7 @@ PROC si_string_to_real = (STRING s, REF REAL v, REF STRING units) BOOL:
 # Convert a real number to a scaled real number with an appropriate SI prefix. #
 # If do_small is TRUE, use hecto, deca, deci and centi otherwise use only 10**3n prefixes. #
 # This is quite hard to get right, and I'm not certain I have in all cases! #
-
+# --- #
 # This variant uses u for micro prefix and is suitable for all output (command line, etc.). #
 PROC real_to_si_real = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small) BOOL:
 (
@@ -589,44 +753,10 @@ PROC ends_with = (STRING s, STRING b) BOOL:
    retval
 );
 
-# Degrees to radians operator. #
-OP DEGRAD = (REAL a) REAL : (a * pi / 180.0);
 
-# Radians to degrees operator. #
-OP RADDEG = (REAL a) REAL: (180.0 * a / pi);
-
-# Run a command in sh and retrieve the output as a string. Adapted from a68g docs. #
-PROC run_command_get_output = (STRING cmd, REF STRING output) BOOL:
-(
-   BOOL retval := FALSE;
-   IF STRING sh_cmd = " " + cmd + " ; 2>&1";
-      execve output("/bin/sh", ("sh", "-c", sh_cmd), "", output) >= 0
-   THEN
-      retval := TRUE
-   FI;
-   retval
-);
-
-# Return a string denoting the OS being used. #
-PROC get_os_name = STRING:
-(
-   STRING retval := "unknown";
-   STRING uname_output;
-   IF run_command_get_output("uname -a", uname_output)
-   THEN
-      IF string in string("Debian", NIL, uname_output)
-      THEN
-         retval := "debian"
-      ELIF string in string("Darwin", NIL, uname_output)
-      THEN
-         retval := "macos"
-      ELIF string in string("Linux", NIL, uname_output)
-      THEN
-         retval := "linux"
-      FI
-   FI;
-   retval
-);
+# ---------- #
+# File aids. #
+# ---------- #
 
 # Open a "regular" file. a68g open() only checks if a file exists when reading #
 # at the time of the first i/o operation. This function behaves more like Unix fopen()/open(). #
@@ -724,6 +854,11 @@ PROC open_chardev = (STRING devname, STRING mode, REF FILE fio) INT:
    done:
    ret_error
 );
+
+
+# ----------- #
+# Array aids. #
+# ----------- #
 
 # File signature "UUIDs". Just output of date +%s when I want a "UUID"! #
 INT k_1d_array_sig = 1785383565;
@@ -899,6 +1034,11 @@ OP ARRAYEMPTY = ([,]REAL array) BOOL:
 (
    (1 ELEMS array * 2 ELEMS array ) = 0
 );
+
+
+# -------------------- #
+# Error handling aids. #
+# -------------------- #
 
 # Print error message for ierror (as per errno) to stand error. Prepend with leader. #
 PROC print_os_error = (STRING leader, INT ierror) VOID:

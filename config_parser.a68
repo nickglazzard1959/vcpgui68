@@ -474,7 +474,7 @@ PROC config_dump_dictionary = (REF CONFIG_PARSE cp) VOID:
 # TESTS. #
 # ------ #
 
-IF FALSE
+IF TRUE
 THEN
 
 REF CONFIG_PARSE cp := make_config_parser("test.ini");

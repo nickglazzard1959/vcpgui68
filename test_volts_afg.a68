@@ -11,35 +11,35 @@ REF AFG afg := open_afg(0);
                                       fail);
 
 INT waitsecs = 5;
-print((set_volts_afg(afg, 5.0, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 2.0, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 1.0, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.5, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.2, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.1, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.05, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.02, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.01, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.005, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.002, "rms"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.001, "rms"), new line)); sleep(waitsecs);
+print((set_volts_afg(afg, 5.0, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 2.0, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 1.0, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.5, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.2, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.1, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.05, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.02, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.01, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.005, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.002, "rms"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.001, "rms"), new line)); sleep_void(waitsecs);
 
-print((set_volts_afg(afg, 10.0, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 5.0, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 2.0, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 1.0, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.5, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.2, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.1, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.05, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.02, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.01, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.005, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.002, "p-p"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.001, "p-p"), new line)); sleep(waitsecs);
+print((set_volts_afg(afg, 10.0, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 5.0, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 2.0, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 1.0, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.5, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.2, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.1, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.05, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.02, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.01, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.005, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.002, "p-p"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.001, "p-p"), new line)); sleep_void(waitsecs);
 
-print((set_volts_afg(afg, 0.0, "dBV"), new line)); sleep(waitsecs);
-print((set_volts_afg(afg, 0.0, "dBu"), new line)); sleep(waitsecs);
+print((set_volts_afg(afg, 0.0, "dBV"), new line)); sleep_void(waitsecs);
+print((set_volts_afg(afg, 0.0, "dBu"), new line)); sleep_void(waitsecs);
 
 fail:
 close_afg(afg)

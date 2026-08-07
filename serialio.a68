@@ -126,7 +126,7 @@ print((read_serial_char(serial)));
 write_serial_line(serial, "f223334");
 print((read_serial_char(serial)));
 
-sleep(2);
+sleep_void(2);
 
 write_serial_line(serial, "w1");
 print((read_serial_char(serial)));

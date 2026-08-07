@@ -811,6 +811,38 @@ PROC set_radiobutton_by_label = (PIPE p, STRING tag, STRING label, BOOL callproc
    retval
 );
 
+# Change the label displayed by one button in a radio button. Labels must be unique for this to work! #
+PROC change_radiobutton_label = (PIPE p, STRING tag, STRING label, STRING new_label) BOOL:
+(
+   BOOL retval := FALSE;
+
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF RADIOBUTTON rb): (
+            []STRING label_array = split_string(labels OF rb, ",");
+            FOR i TO ELEMS label_array
+            DO
+               IF label_array[i] = label
+               THEN
+                  (sub in string(label, new_label, labels OF rb) /= 0 
+                     | put(stand error, ("change_radiobutton_label(): string substitution failed!", newline))
+                     | retval := TRUE );
+                  done
+               FI
+            OD;
+            put(stand error, ("change_radiobutton_label(): Label [",label,"] not found for component [",tag,"].",new line))
+         )
+      OUT
+         put(stand error, ("change_radiobutton_label(): Component [",tag,"] is not a RADIOBUTTON.",newline))
+      ESAC
+   FI;
+   done:
+   retval
+);
+
 # Get the X coordinate of the left boundary of each button on a radio button. #
 # Returns an array of n_buttons+1 x coordinates: n_buttons+1 has the right edge of the array. #
 PROC get_radiobutton_x_boundaries = (STRING tag) []INT:
