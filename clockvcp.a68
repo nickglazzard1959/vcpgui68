@@ -43,6 +43,8 @@ print((newline,title,newline));
 print(((ELEMS title)*"=",newline));
 print(("Running under Algol 68 Genie 3.12.0",newline));
 
+
+
 # Open and configure the GUI display surface. #
 INT width := 600, height := 250;
 PIPE gui := open_gui("Clock", width, height);

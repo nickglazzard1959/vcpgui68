@@ -261,7 +261,7 @@ PROC split_string = (STRING s, CHAR c) []STRING:
    return
 );
 
-# Trim blanks from a string. Leading, trailing or both. #
+# Trim leading blanks from a string. #
 PROC trim_leading = (STRING s) STRING:
 (
    STRING return := "";
@@ -274,6 +274,7 @@ PROC trim_leading = (STRING s) STRING:
    return
 );
 
+# Trim trailing blanks from a string. #
 PROC trim_trailing = (STRING s) STRING:
 (
    STRING return := "";
@@ -286,9 +287,23 @@ PROC trim_trailing = (STRING s) STRING:
    return
 );
 
+# Trim leading and trailing blanks from a string. #
 PROC trim = (STRING s) STRING:
 (
    trim_leading( trim_trailing(s) )
+);
+
+# Remove all white space from a string. #
+PROC strip_blank = (STRING s) STRING:
+(
+   STRING return := "";
+   INT string_length := ELEMS s;
+   FOR i TO string_length
+   DO
+      (NOT is space(s[i]) | return +:= s[i])
+   OD;
+   done:
+   return
 );
 
 # Change the case of a string. #
@@ -781,7 +796,7 @@ PROC open_file = (STRING filename, STRING mode, REF FILE fio) INT:
    THEN
       (NOT file is regular(filename) | ret_error := errno; done);
       VOID(open(fio, filename, stand in channel));
-      (fopen_error | print(("HX")); ret_error := errno; done)
+      (fopen_error | ret_error := errno; done)
 
    # Read and write. File must already exist. #
    ELIF mode = "r+"

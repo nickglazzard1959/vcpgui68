@@ -22,6 +22,12 @@ REAL afloat := config_get_real_value(cp, "afloat", 2.718); # Float/Real #
 STRING ml := config_get_string_value(cp, "tablea1.ml", "coffee"); # Multi-line string #
 FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2)); # 1D array of REALs #
 
+Beyond the straightforward use of getting settings from a configuration file, the key-value pairs can
+be grouped into 'tables' and those tables can be used pretty much as separate 'dictionaries' or
+'associative arrays' with string keys and string (plain, literal or multi-line), integer, real
+or array-of-real values. Key-vslue pairs and tables can be added to a CONFIG_PARSE object without
+referencing a file at all, which may sometimes be useful.
+
 Nick Glazzard 2026.
 -------------------
 COMMENT
@@ -43,9 +49,8 @@ PROC make_config_parser = (STRING config_file_name) REF CONFIG_PARSE:
    new
 );
 
-# Add a key-value to the string dictionary. #
-PROC config_add_key_value_to_string_dict = (REF CONFIG_PARSE config_parser, STRING table,
-                                            STRING key, STRING value) VOID:
+# Add a key-value to the string dictionary. The value string must use the conventions for config files. #
+PROC config_add_key_value = (REF CONFIG_PARSE config_parser, STRING table, STRING key, STRING value) VOID:
 (
    STRING full_key := (table = "" | key | table + "." + key);
    IF (config_dict OF config_parser) HASKEY full_key
@@ -125,7 +130,7 @@ PROC config_add_key_value_to_string_dict = (REF CONFIG_PARSE config_parser, STRI
                put(stand error, 
                    ("Config_parser: Array not correctly terminated (key: ",full_key,").",newline));
                done_adding);
-         mod_value := value[2:(ELEMS value)-1];
+         mod_value := strip_blank(value[2:(ELEMS value)-1]);
          (config_dict OF config_parser) // full_key := "A" + mod_value;
          done_adding
       FI;
@@ -152,6 +157,7 @@ PROC string_escapes_to_chars = (STRING s) STRING:
       esc_map_done:
       c_code
    );
+
    STRING retval := "";
    IF count_char_occurrences("\", s) = 0
    THEN
@@ -181,6 +187,39 @@ PROC string_escapes_to_chars = (STRING s) STRING:
    retval
 );
 
+# Convert special characters to escape sequences. #
+PROC chars_to_string_escapes = (STRING s) STRING:
+(
+   MODE INVERSE_ESC_PAIR = STRUCT( INT r, STRING c );
+   []INVERSE_ESC_PAIR inverse_esc_map = ((8,"\b"), (9,"\t"), (10,"\n"), (12,"\f"), (13,"\r"),
+                                         (27,"\e"), (34, "\"""), (92,"\\"));
+   PROC apply_inverse_esc_map = (INT r) STRING:
+   (
+      STRING insert := "";
+      FOR i TO ELEMS inverse_esc_map
+      DO
+         (r = (r OF inverse_esc_map)[i] | insert := (c OF inverse_esc_map)[i]; esc_map_done)
+      OD;
+      esc_map_done:
+      insert
+   );
+
+   STRING retval := "";
+
+   FOR i TO ELEMS s
+   DO
+      CHAR c := s[i];
+      IF (NOT is print(c)) OR (c = """") OR (c = "\")
+      THEN
+         retval +:= apply_inverse_esc_map(ABS c)
+      ELSE
+         retval +:= c
+      FI
+   OD;
+
+   retval
+);
+
 # Read a config file and convert it to entries in a string dictionary. #
 PROC parse_config_file = (REF CONFIG_PARSE config_parser) BOOL:
 (
@@ -190,7 +229,7 @@ PROC parse_config_file = (REF CONFIG_PARSE config_parser) BOOL:
 
    # Open the config file. #
    FILE fin;
-   IF open(fin, config_file_name OF config_parser, stand in channel) /= 0
+   IF open_file(config_file_name OF config_parser, "r", fin) /= 0
    THEN
       put(stand error, (("Failed to open config file: ", config_file_name OF config_parser, new line)))
    ELSE
@@ -268,7 +307,7 @@ PROC parse_config_file = (REF CONFIG_PARSE config_parser) BOOL:
                   in_multi_line_value := begins_with(current_value, multi_line_quote);
                   IF NOT in_multi_line_value
                   THEN
-                     config_add_key_value_to_string_dict(config_parser, current_table, current_key, current_value);
+                     config_add_key_value(config_parser, current_table, current_key, current_value);
                      current_key := "";
                      current_value := ""
 
@@ -295,7 +334,7 @@ PROC parse_config_file = (REF CONFIG_PARSE config_parser) BOOL:
 
                   # Multi-line has ended. Make a dictionary entry. #
                   ELSE
-                     config_add_key_value_to_string_dict(config_parser, current_table, current_key, current_value);
+                     config_add_key_value(config_parser, current_table, current_key, current_value);
                      current_key := "";
                      current_value := ""
                   FI
@@ -323,7 +362,7 @@ PROC parse_config_file = (REF CONFIG_PARSE config_parser) BOOL:
    status
 );
 
-# Decode the leading type character of a value stored in the string dictionary. #
+# Decode the leading type character of a value stored in the string dictionary for output. #
 PROC config_display_type = (STRING abbreviated) STRING:
 (
    (abbreviated = "I" | "INTEGER" |
@@ -336,11 +375,13 @@ PROC config_display_type = (STRING abbreviated) STRING:
                                              "UNKNOWN")))))))
 );
 
+# Internal undefined key message helper. #
 PROC config_undefined_key_msg = (STRING key) VOID:
 (
    put(stand error, ("Key [",key,"] has not been defined. Defaulting.",new line))
 );
 
+# Internal wrong value message helper. #
 PROC config_wrong_value_type_msg = (STRING key, STRING wanted_type, STRING actual_type_1) VOID:
 (
    put(stand error, 
@@ -434,7 +475,7 @@ PROC config_get_real_array = (REF CONFIG_PARSE cp, STRING key, []REAL default) [
       STRING value := (config_dict OF cp) // key;
       IF (value[1] = "A")
       THEN
-         []STRING string_values = split_string(value[2:(ELEMS value - 1)], ",");
+         []STRING string_values = split_string(value[2:(ELEMS value)], ",");
          INT n_values := ELEMS string_values;
          [n_values]REAL result;
          FOR i TO n_values
@@ -468,6 +509,147 @@ PROC config_dump_dictionary = (REF CONFIG_PARSE cp) VOID:
           ((config_dict_keys[i]," -> ",(config_dict OF cp)//config_dict_keys[i],newline)))
    OD;
    put(stand error, ("============================================", new line))
+);
+
+# Return an array of table names. #
+PROC config_get_table_names = (REF CONFIG_PARSE cp) []STRING:
+(
+   string_list_as_array(tables OF cp)
+);
+
+# Get all keys in a table. #
+PROC config_get_keys_in_table = (REF CONFIG_PARSE cp, STRING table_name) []STRING:
+(
+   STRING_LIST result_list := STRING_LIST_INIT HEAP STRING_LIST;
+
+   # Ensure table_name is valid. #
+   ( NOT ((tables OF cp) HASELEM table_name) |
+         put(stand error, ("config_get_keys_in_table(): undefined table [",table_name,"].", newline));
+         done );
+
+   # Go through the keys, adding those in table_name to a list of strings. #
+   FLEX [1:0] STRING config_dict_keys := get_string_dict_keys_array(config_dict OF cp);
+   FOR i TO ELEMS (config_dict OF cp)
+   DO
+      INT p_dot := 0;
+      BOOL in_table := FALSE;
+      BOOL find_dot := char in string(".", p_dot, config_dict_keys[i]);
+      (NOT find_dot AND (table_name = "") | in_table := TRUE);
+      (find_dot AND (p_dot > 1) | in_table := (config_dict_keys[i][:p_dot-1] = table_name));
+      (in_table | result_list +:= config_dict_keys[i])
+   OD;
+   
+   # Convert string list to a string array. #
+   done:
+   string_list_as_array(result_list)
+);
+
+# Get the type of a value. Return one of: '' (bad key), S, L, M, B, I, F, A. #
+PROC config_get_value_type = (REF CONFIG_PARSE cp, STRING key) STRING:
+(
+   STRING retval := "";
+
+   IF NOT ((config_dict OF cp) HASKEY key)
+   THEN
+      config_undefined_key_msg(key)
+   ELSE
+      STRING value := (config_dict OF cp) // key;
+      retval := value[1]
+   FI;
+   retval
+);
+
+# Get a value of any type as a string. #
+PROC config_get_value_as_string = (REF CONFIG_PARSE cp, STRING key) STRING:
+(
+   STRING retval := "";
+
+   IF NOT ((config_dict OF cp) HASKEY key)
+   THEN
+      config_undefined_key_msg(key)
+   ELSE
+      STRING value := (config_dict OF cp) // key;
+      retval := value[2:]
+   FI;
+   retval 
+);
+
+# Add a new table. If the table already exists, that is OK. #
+# key-value pairs can then be added with config_add_key_value(). #
+PROC config_add_table = (REF CONFIG_PARSE cp, STRING table) VOID:
+(
+   (NOT ((tables OF cp) HASELEM table) | (tables OF cp) +:= table)
+);
+
+# Display all the contents of a CONFIG_PARSE object. #
+PROC config_display_contents = (REF CONFIG_PARSE cp, BOOL sort) VOID:
+(
+   FLEX [1:0] STRING tables := config_get_table_names(cp);
+   (sort | tables := SORT tables);
+   FOR i TO ELEMS tables
+   DO
+      print((newline,"TABLE: [",tables[i],"]",newline));
+      FLEX [1:0] STRING keys_in_table := config_get_keys_in_table(cp, tables[i]);
+      (sort | keys_in_table := SORT keys_in_table);
+      FOR j TO ELEMS keys_in_table
+      DO
+         print(("... KEY: [",keys_in_table[j],"] ... TYPE:[",
+                config_get_value_type(cp, keys_in_table[j]),"] ... VALUE:[",
+                config_get_value_as_string(cp, keys_in_table[j]),"]",newline))
+      OD
+   OD
+);
+
+# Write a config file from the current contents of a config parser object. #
+# Note that this *intentionally* does not use the file name in the config parser object. #
+PROC write_config_file = (REF CONFIG_PARSE cp, STRING filename) BOOL:
+(
+   BOOL retval := FALSE;
+
+   FILE fout;
+   IF open_file(filename, "w", fout) /= 0
+   THEN
+      put(stand error, (("Failed to create config file: ", filename, new line)))
+   ELSE
+      CHAR dquote = REPR 34; # double quote. #
+      CHAR squote = REPR 39; # single quote. #
+      STRING multi_line_quote = 3 * (REPR 39); # 3 single quotes in a row. #
+
+      FLEX [1:0] STRING tables := SORT config_get_table_names(cp);
+      FOR i TO ELEMS tables
+      DO
+         (i > 1 | put(fout, (new line)));
+         put(fout, ("[", tables[i], "]", new line));
+
+         FLEX [1:0] STRING keys_in_table := SORT config_get_keys_in_table(cp, tables[i]);
+         FOR j TO ELEMS keys_in_table
+         DO
+            put(fout, (keys_in_table[j], " = "));
+            STRING type_code := config_get_value_type(cp, keys_in_table[j]);
+            STRING value_string := config_get_value_as_string(cp, keys_in_table[j]);
+            IF (type_code = "S")
+            THEN
+               put(fout, (dquote, chars_to_string_escapes(value_string), dquote, new line))
+            ELIF (type_code = "L")
+            THEN
+               put(fout, (squote, value_string, squote, new line))
+            ELIF (type_code = "M")
+            THEN
+               put(fout, (multi_line_quote, value_string, multi_line_quote, new line))
+            ELIF (type_code = "A")
+            THEN
+               put(fout, ("[", value_string, "]", new line))
+            ELSE
+               put(fout, (value_string, new line))
+            FI
+         OD
+      OD;
+
+      close(fout);
+      retval := TRUE
+   FI;
+
+   retval
 );
 
 # ------ #
@@ -509,8 +691,33 @@ put(stand error, ("ra = ", ra, newline));
 INT anotherint := config_get_int_value(cp, "anotherint", -1234);
 put(stand error, ("anotherint = ", anotherint, newline));
 
-put(stand error, ("Number of tables = ",wint(ELEMS (tables OF cp)),newline));
-FOR i TO ELEMS (tables OF cp) DO put(stand error, ((tables OF cp) GET i, newline)) OD;
+config_display_contents(cp, TRUE);
 
-put(stand error, ("Tables as array: ", string_list_as_array(tables OF cp), newline))
+config_add_key_value(cp, "", "new-key", """A new key.""");
+config_add_key_value(cp, "", "new-real", "2.718");
+config_add_key_value(cp, "", "new-int", "666");
+config_display_contents(cp, TRUE);
+
+config_add_table(cp, "new-table");
+config_add_key_value(cp, "new-table", "new-key", """A new key.""");
+config_add_key_value(cp, "new-table", "new-real", "2.718");
+config_add_key_value(cp, "new-table", "new-int", "666");
+config_display_contents(cp, TRUE);
+
+print(("write config: ",write_config_file(cp, "newconfig.ini"),newline));
+
+REF CONFIG_PARSE read_cp := make_config_parser("newconfig.ini");
+IF NOT parse_config_file(read_cp)
+THEN
+   put(stand error, ("Failed to parse config file. Giving up.", newline));
+   stop
+FI;
+config_display_contents(read_cp, TRUE);
+
+REF CONFIG_PARSE int_cp := make_config_parser("internal.ini");
+config_add_key_value(int_cp, "", "new-int", "696969");
+config_add_table(int_cp, "another-table");
+config_add_key_value(int_cp, "another-table", "thing", """String 696969""");
+config_display_contents(int_cp, TRUE)
+
 FI;
