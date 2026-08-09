@@ -2187,6 +2187,13 @@ PROC get_geometry = (STRING tag, REF GEOMETRY g) VOID:
    VOID(get_geometry_status(tag, g))
 );
 
+# Print a geometry object. #
+PROC print_geometry = (REF GEOMETRY g) VOID:
+(
+   print(("Geometry, size: (",wint(width OF g),"x",wint(height OF g),") centre: (",
+          wint(xc OF g),",",wint(yc OF g),")",new line))
+);
+
 # Move the location of a named component so that 'corner' is at (xc,yc). #
 # Corner must be one of bl (bottom left), tl (top left), br (bottom right), tr (top right), c (center) #
 PROC move_component_status = (STRING tag, STRING corner, INT xc, yc) BOOL:

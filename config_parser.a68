@@ -517,8 +517,14 @@ PROC config_get_table_names = (REF CONFIG_PARSE cp) []STRING:
    string_list_as_array(tables OF cp)
 );
 
+# Return TRUE if the config parser has a specified table. #
+PROC config_has_table = (REF CONFIG_PARSE cp, STRING table_name) BOOL:
+(
+   (tables OF cp) HASELEM table_name
+);
+
 # Get all keys in a table. #
-PROC config_get_keys_in_table = (REF CONFIG_PARSE cp, STRING table_name) []STRING:
+PROC config_get_keys_in_table = (REF CONFIG_PARSE cp, STRING table_name, BOOL strip_table) []STRING:
 (
    STRING_LIST result_list := STRING_LIST_INIT HEAP STRING_LIST;
 
@@ -536,7 +542,7 @@ PROC config_get_keys_in_table = (REF CONFIG_PARSE cp, STRING table_name) []STRIN
       BOOL find_dot := char in string(".", p_dot, config_dict_keys[i]);
       (NOT find_dot AND (table_name = "") | in_table := TRUE);
       (find_dot AND (p_dot > 1) | in_table := (config_dict_keys[i][:p_dot-1] = table_name));
-      (in_table | result_list +:= config_dict_keys[i])
+      (in_table | result_list +:= (strip_table | config_dict_keys[i][p_dot+1:] | config_dict_keys[i]))
    OD;
    
    # Convert string list to a string array. #
@@ -589,7 +595,7 @@ PROC config_display_contents = (REF CONFIG_PARSE cp, BOOL sort) VOID:
    FOR i TO ELEMS tables
    DO
       print((newline,"TABLE: [",tables[i],"]",newline));
-      FLEX [1:0] STRING keys_in_table := config_get_keys_in_table(cp, tables[i]);
+      FLEX [1:0] STRING keys_in_table := config_get_keys_in_table(cp, tables[i], FALSE);
       (sort | keys_in_table := SORT keys_in_table);
       FOR j TO ELEMS keys_in_table
       DO
@@ -621,7 +627,7 @@ PROC write_config_file = (REF CONFIG_PARSE cp, STRING filename) BOOL:
          (i > 1 | put(fout, (new line)));
          put(fout, ("[", tables[i], "]", new line));
 
-         FLEX [1:0] STRING keys_in_table := SORT config_get_keys_in_table(cp, tables[i]);
+         FLEX [1:0] STRING keys_in_table := SORT config_get_keys_in_table(cp, tables[i], FALSE);
          FOR j TO ELEMS keys_in_table
          DO
             put(fout, (keys_in_table[j], " = "));
@@ -656,7 +662,7 @@ PROC write_config_file = (REF CONFIG_PARSE cp, STRING filename) BOOL:
 # TESTS. #
 # ------ #
 
-IF TRUE
+IF FALSE
 THEN
 
 REF CONFIG_PARSE cp := make_config_parser("test.ini");

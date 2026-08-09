@@ -302,18 +302,18 @@ OP DICT_HASH = (STRING key) INT:
 
 # MODE declarations for STRING value dictionaries. #
 MODE STRING_DICT_VALUE = STRING;  # Values stored in the dictionary. #
-MODE STRING_DICT_ELEMENT = STRUCT(STRING key, REF STRING_DICT_VALUE value); # Dictionary element. #
+MODE STRING_DICT_KEYVAL = STRUCT(STRING key, REF STRING_DICT_VALUE value); # Dictionary element. #
  # Collision list entry. #
-MODE STRING_DICT_ELEMENT_LIST = STRUCT(STRING_DICT_ELEMENT element, REF STRING_DICT_ELEMENT_LIST next);
-REF STRING_DICT_ELEMENT_LIST nil element list = NIL; # NIL collision list entry reference. #
-REF STRING_DICT_ELEMENT nil element = NIL; # NIL dictionary element reference. #
+MODE STRING_DICT_LIST_NODE = STRUCT(STRING_DICT_KEYVAL keyval, REF STRING_DICT_LIST_NODE next);
+REF STRING_DICT_LIST_NODE nil element list = NIL; # NIL collision list entry reference. #
+REF STRING_DICT_KEYVAL nil keyval = NIL; # NIL dictionary element reference. #
 STRING_DICT_VALUE init element value = ""; 
 
 # Dictionary: hash table collision lists. #
-MODE STRING_DICT = STRUCT([0:hash modulus-1]REF STRING_DICT_ELEMENT_LIST elements, # Hash table (list heads). #
+MODE STRING_DICT = STRUCT([0:hash modulus-1]REF STRING_DICT_LIST_NODE heads, # Hash table (list heads). #
                           REF STRING_LIST keys_list,                               # In-order list of keys. #
                           INT current_hash,                                        # Used for FIRST/NEXT. #
-                          REF STRING_DICT_ELEMENT_LIST current_position            # Used for FIRST/NEXT. #
+                          REF STRING_DICT_LIST_NODE current_position            # Used for FIRST/NEXT. #
                          ); 
 
 # Initialise a dictionary by setting all its collision lists to NIL. #
@@ -321,7 +321,7 @@ OP STRING_DICT_INIT = (REF STRING_DICT dict) REF STRING_DICT:
 (
    FOR hash value FROM 0 TO hash modulus - 1
    DO
-      (elements OF dict)[hash value] := nil element list
+      (heads OF dict)[hash value] := nil element list
    OD;
    keys_list OF dict := STRING_LIST_INIT HEAP STRING_LIST;
    dict
@@ -334,26 +334,27 @@ PRIO // = 1;
 OP // = (REF STRING_DICT dict, STRING key) REF STRING_DICT_VALUE:
 (
    REF STRING_DICT_VALUE result;
+
+   # Hash the key. Find the approriate list head. #
    INT hash value = DICT_HASH key;
-   
-   REF STRING_DICT_ELEMENT_LIST element := (elements OF dict)[hash value];
+   REF STRING_DICT_LIST_NODE element := (heads OF dict)[hash value];
 
    # See if key already exists. #
    BOOL found element := FALSE;
    WHILE (element ISNT nil element list) AND NOT found element
    DO
-      found element := (key OF element OF element = key);
-      (found element | result := value OF element OF element | element := next OF element)
+      found element := (key OF keyval OF element = key);
+      (found element | result := value OF keyval OF element | element := next OF element)
    OD;
 
    # No. Add a new list element at the head of the relevant hash collision list. #
    # Note how this can be done with a single multiple assignment statement, including heap allocations. #
    IF NOT found element
    THEN
-      (elements OF dict)[hash value] := HEAP STRING_DICT_ELEMENT_LIST 
-                                     := (HEAP STRING_DICT_ELEMENT := (key, HEAP STRING_DICT_VALUE := init element value),
-                                                                     (elements OF dict)[hash value]);
-      result := value OF element OF (elements OF dict)[hash value];
+      (heads OF dict)[hash value] := HEAP STRING_DICT_LIST_NODE 
+                                  := (HEAP STRING_DICT_KEYVAL := (key, HEAP STRING_DICT_VALUE := init element value),
+                                                                     (heads OF dict)[hash value]);
+      result := value OF keyval OF (heads OF dict)[hash value];
       (keys_list OF dict) +:= key
    FI;
    result
@@ -369,12 +370,12 @@ OP // = (REF STRING_DICT dict, CHAR key) REF STRING_DICT_VALUE:
 PRIO HASKEY = 1;
 OP HASKEY = (REF STRING_DICT dict, STRING key) BOOL:
 (
-   REF STRING_DICT_ELEMENT_LIST element := (elements OF dict)[DICT_HASH key];
+   REF STRING_DICT_LIST_NODE element := (heads OF dict)[DICT_HASH key];
 
    BOOL found element := FALSE;
    WHILE (element ISNT nil element list) AND NOT found element
    DO
-      found element := (key OF element OF element = key);
+      found element := (key OF keyval OF element = key);
       (NOT found element | element := next OF element)
    OD;
    found element
@@ -398,38 +399,38 @@ OP ELEMS = (REF STRING_DICT dict) INT:
 );
 
 # Start traversal of dictionary contents. Returns "first" element. Can be NIL (nil element list).#
-OP FIRST = (REF STRING_DICT dict) REF STRING_DICT_ELEMENT:
+OP FIRST = (REF STRING_DICT dict) REF STRING_DICT_KEYVAL:
 (
-   current_hash OF dict := LWB (elements OF dict) - 1;  # Start with first hash list entry. #
+   current_hash OF dict := LWB (heads OF dict) - 1;  # Start with first hash list entry. #
    current_position OF dict := nil element list;        # Which may be empty. #
    NEXT dict                                            # Find the first non-empty list element. #
 );
 
 # Find the "next" element of the dictionary, if any.  Return nil element list if no more. #
-OP NEXT = (REF STRING_DICT dict) REF STRING_DICT_ELEMENT:
+OP NEXT = (REF STRING_DICT dict) REF STRING_DICT_KEYVAL:
 (
    # Find a list head with a collision list. #
-   WHILE (current_position OF dict IS nil element list) AND (current_hash OF dict < UPB (elements OF dict))
+   WHILE (current_position OF dict IS nil element list) AND (current_hash OF dict < UPB (heads OF dict))
    DO
       current_hash OF dict +:= 1;
-      current_position OF dict := (elements OF dict)[current_hash OF dict]
+      current_position OF dict := (heads OF dict)[current_hash OF dict]
    OD;
 
    # Reached the end of the list head array? #
-   IF current_hash OF dict > UPB (elements OF dict)
+   IF current_hash OF dict > UPB (heads OF dict)
    THEN
-      nil element
+      nil keyval
 
    # Reached the end of the list?  #
    ELIF (current_position OF dict) IS nil element list
    THEN
-      nil element
+      nil keyval
 
    # There is another element, return a reference to it. #
    ELSE
-      REF STRING_DICT_ELEMENT_LIST found_element = current_position OF dict;
+      REF STRING_DICT_LIST_NODE found_element = current_position OF dict;
       current_position OF dict := next OF current_position OF dict;
-      element OF found_element
+      keyval OF found_element
    FI
 );
 
@@ -439,18 +440,18 @@ OP NEXT = (REF STRING_DICT dict) REF STRING_DICT_ELEMENT:
 
 # MODE declarations for INT value dictionaries. #
 MODE INT_DICT_VALUE = INT;  # Values stored in the dictionary. #
-MODE INT_DICT_ELEMENT = STRUCT(STRING key, REF INT_DICT_VALUE value); # Dictionary element. #
+MODE INT_DICT_KEYVAL = STRUCT(STRING key, REF INT_DICT_VALUE value); # Dictionary element. #
  # Collision list entry. #
-MODE INT_DICT_ELEMENT_LIST = STRUCT(INT_DICT_ELEMENT element, REF INT_DICT_ELEMENT_LIST next);
-REF INT_DICT_ELEMENT_LIST nil int element list = NIL; # NIL collision list entry reference. #
-REF INT_DICT_ELEMENT nil int element = NIL; # NIL dictionary element reference. #
+MODE INT_DICT_LIST_NODE = STRUCT(INT_DICT_KEYVAL keyval, REF INT_DICT_LIST_NODE next);
+REF INT_DICT_LIST_NODE nil int element list = NIL; # NIL collision list entry reference. #
+REF INT_DICT_KEYVAL nil int element = NIL; # NIL dictionary element reference. #
 INT_DICT_VALUE init int element value = -1; 
 
 # Dictionary: hash table collision lists. #
-MODE INT_DICT = STRUCT([0:hash modulus-1]REF INT_DICT_ELEMENT_LIST elements,    # Hash table (list heads). #
+MODE INT_DICT = STRUCT([0:hash modulus-1]REF INT_DICT_LIST_NODE heads,    # Hash table (list heads). #
                        REF STRING_LIST keys_list,                               # In-order list of keys. #
                        INT current_hash,                                        # Used for FIRST/NEXT. #
-                       REF INT_DICT_ELEMENT_LIST current_position               # Used for FIRST/NEXT. #
+                       REF INT_DICT_LIST_NODE current_position               # Used for FIRST/NEXT. #
                       ); 
 
 # Initialise a dictionary by setting all its collision lists to NIL. #
@@ -458,7 +459,7 @@ OP INT_DICT_INIT = (REF INT_DICT dict) REF INT_DICT:
 (
    FOR hash value FROM 0 TO hash modulus - 1
    DO
-      (elements OF dict)[hash value] := nil int element list
+      (heads OF dict)[hash value] := nil int element list
    OD;
    keys_list OF dict := STRING_LIST_INIT HEAP STRING_LIST;
    dict
@@ -472,21 +473,21 @@ OP // = (REF INT_DICT dict, STRING key) REF INT_DICT_VALUE:
    REF INT_DICT_VALUE result;
    INT hash value = DICT_HASH key;
    
-   REF INT_DICT_ELEMENT_LIST element := (elements OF dict)[hash value];
+   REF INT_DICT_LIST_NODE element := (heads OF dict)[hash value];
 
    BOOL found element := FALSE;
    WHILE (element ISNT nil int element list) AND NOT found element
    DO
-      found element := ((key OF element OF element) = key);
-      (found element | result := value OF element OF element | element := next OF element)
+      found element := ((key OF keyval OF element) = key);
+      (found element | result := value OF keyval OF element | element := next OF element)
    OD;
 
    IF NOT found element
    THEN
-      (elements OF dict)[hash value] := HEAP INT_DICT_ELEMENT_LIST 
-                                      := (HEAP INT_DICT_ELEMENT := (key, HEAP INT_DICT_VALUE := init int element value),
-                                                                  (elements OF dict)[hash value]);
-      result := value OF element OF (elements OF dict)[hash value];
+      (heads OF dict)[hash value] := HEAP INT_DICT_LIST_NODE 
+                                      := (HEAP INT_DICT_KEYVAL := (key, HEAP INT_DICT_VALUE := init int element value),
+                                                                  (heads OF dict)[hash value]);
+      result := value OF keyval OF (heads OF dict)[hash value];
       (keys_list OF dict) +:= key
    FI;
    result
@@ -501,12 +502,12 @@ OP // = (REF INT_DICT dict, CHAR key) REF INT_DICT_VALUE:
 # Check if a key exists in a dictionary. #
 OP HASKEY = (REF INT_DICT dict, STRING key) BOOL:
 (
-   REF INT_DICT_ELEMENT_LIST element := (elements OF dict)[DICT_HASH key];
+   REF INT_DICT_LIST_NODE element := (heads OF dict)[DICT_HASH key];
 
    BOOL found element := FALSE;
    WHILE (element ISNT nil int element list) AND NOT found element
    DO
-      found element := (key OF element OF element = key);
+      found element := (key OF keyval OF element = key);
       (NOT found element | element := next OF element)
    OD;
    found element
@@ -530,25 +531,25 @@ OP ELEMS = (REF INT_DICT dict) INT:
 );
 
 # Start traversal of dictionary contents. Returns "first" element. Can be NIL (nil element list).#
-OP FIRST = (REF INT_DICT dict) REF INT_DICT_ELEMENT:
+OP FIRST = (REF INT_DICT dict) REF INT_DICT_KEYVAL:
 (
-   current_hash OF dict := LWB (elements OF dict) - 1;  # Start with first hash list entry. #
+   current_hash OF dict := LWB (heads OF dict) - 1;  # Start with first hash list entry. #
    current_position OF dict := nil int element list;    # Which may be empty. #
    NEXT dict                                            # Find the first non-empty list element. #
 );
 
 # Find the "next" element of the dictionary, if any.  Return nil element list if no more. #
-OP NEXT = (REF INT_DICT dict) REF INT_DICT_ELEMENT:
+OP NEXT = (REF INT_DICT dict) REF INT_DICT_KEYVAL:
 (
    # Find a list head with a collision list. #
-   WHILE (current_position OF dict IS nil int element list) AND (current_hash OF dict < UPB (elements OF dict))
+   WHILE (current_position OF dict IS nil int element list) AND (current_hash OF dict < UPB (heads OF dict))
    DO
       current_hash OF dict +:= 1;
-      current_position OF dict := (elements OF dict)[current_hash OF dict]
+      current_position OF dict := (heads OF dict)[current_hash OF dict]
    OD;
 
    # Reached the end of the list head array? #
-   IF current_hash OF dict > UPB (elements OF dict)
+   IF current_hash OF dict > UPB (heads OF dict)
    THEN
       nil int element
 
@@ -559,9 +560,9 @@ OP NEXT = (REF INT_DICT dict) REF INT_DICT_ELEMENT:
 
    # There is another element, return a reference to it. #
    ELSE
-      REF INT_DICT_ELEMENT_LIST found_element = current_position OF dict;
+      REF INT_DICT_LIST_NODE found_element = current_position OF dict;
       current_position OF dict := next OF current_position OF dict;
-      element OF found_element
+      keyval OF found_element
    FI
 );
 
@@ -608,8 +609,8 @@ print(("Accessing non-existent key: ", map // "Nope", new line)); # Creates key 
 print(("number of keys = ", ELEMS map, new line));
 print((get_string_dict_keys_array(map), new line));
 
-REF STRING_DICT_ELEMENT strelem := FIRST map;
-WHILE strelem ISNT nil element
+REF STRING_DICT_KEYVAL strelem := FIRST map;
+WHILE strelem ISNT nil keyval
 DO
    print(("Key ", key OF strelem, " --> ", value OF strelem, newline));
    strelem := NEXT map
@@ -634,7 +635,7 @@ print(("Nuts in imap? ", imap HASKEY "Nuts", new line));
 print(("number of keys = ", ELEMS imap, new line));
 print((get_int_dict_keys_array(imap), new line));
 
-REF INT_DICT_ELEMENT intelem := FIRST imap;
+REF INT_DICT_KEYVAL intelem := FIRST imap;
 WHILE intelem ISNT nil int element
 DO
    print(("Key ", key OF intelem, " --> ", value OF intelem, newline));

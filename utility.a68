@@ -115,12 +115,18 @@ PROC get_time_of_day = (BOOL utc) HMSTIME:
 PROC make_hms = (INT d, h, m, s) HMSTIME:
 (
    HMSTIME hms;
+   set_hms(hms, d, h, m, s);
+   hms
+);
+
+# Set the contents of an HMSTIME from components. #
+PROC set_hms = (REF HMSTIME hms, INT d, h, m, s) VOID:
+(
    negative OF hms := (d < 0) OR (h < 0) OR (m < 0) OR (s < 0);
    h OF hms := ABS h;
    m OF hms := ABS m;
    s OF hms := ABS s;
    delta_days OF hms := ABS d;
-   hms
 );
 
 # Define addition for HMSTIME values. #
@@ -259,6 +265,18 @@ PROC split_string = (STRING s, CHAR c) []STRING:
       return := result
    FI;
    return
+);
+
+# Index of string in a row of strings. 0 if not found. #
+PROC string_in_row_of_strings = (STRING s, []STRING r) INT:
+(
+   INT retval := 0;
+   FOR i TO ELEMS r
+   DO
+      (s = r[i] | retval := i; done)
+   OD;
+   done:
+   retval
 );
 
 # Trim leading blanks from a string. #
