@@ -126,7 +126,7 @@ PROC set_hms = (REF HMSTIME hms, INT d, h, m, s) VOID:
    h OF hms := ABS h;
    m OF hms := ABS m;
    s OF hms := ABS s;
-   delta_days OF hms := ABS d;
+   delta_days OF hms := ABS d
 );
 
 # Define addition for HMSTIME values. #

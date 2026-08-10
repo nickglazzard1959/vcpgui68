@@ -214,7 +214,7 @@ OP INDEX = (REF STRING_LIST list, STRING value) INT:
    retval
 );
 
-# Delete a list item, given the index of the item. #
+# Delete a list item, given the index of the item. Return value of list item. #
 PRIO DEL = 1;
 OP DEL = (REF STRING_LIST list, INT index) STRING:
 (
@@ -255,7 +255,8 @@ OP DEL = (REF STRING_LIST list, INT index) STRING:
                ELIF next OF cur IS nil_sle
                THEN
                   # Last item is to be deleted. #
-                  tail OF list := prev
+                  tail OF list := prev;
+                  next OF tail OF list := nil_sle
 
                ELSE
                  # An item in the middle to is be deleted. #
@@ -335,7 +336,7 @@ OP // = (REF STRING_DICT dict, STRING key) REF STRING_DICT_VALUE:
 (
    REF STRING_DICT_VALUE result;
 
-   # Hash the key. Find the approriate list head. #
+   # Hash the key. Find the appropriate list head. #
    INT hash value = DICT_HASH key;
    REF STRING_DICT_LIST_NODE element := (heads OF dict)[hash value];
 
@@ -387,9 +388,16 @@ OP HASKEY = (REF STRING_DICT dict, CHAR key) BOOL:
    dict HASKEY STRING(key)
 );
 
+# Get keys as a row of STRINGs. #
 PROC get_string_dict_keys_array = (REF STRING_DICT dict) []STRING:
 (
    string_list_as_array(keys_list OF dict)
+);
+
+# Print a list of keys readably. #
+PROC print_string_dict_keys = (REF STRING_DICT dict) VOID:
+(
+   (ELEMS (keys_list OF dict) = 0 | print((new line)) | string_list_print(keys_list OF dict))
 );
 
 # Return number of keys in dictionary. Overload ELEMS. #
@@ -432,6 +440,52 @@ OP NEXT = (REF STRING_DICT dict) REF STRING_DICT_KEYVAL:
       current_position OF dict := next OF current_position OF dict;
       keyval OF found_element
    FI
+);
+
+# Delete the keyval with a given key from a string dictionary. Return TRUE if key found and deleted, else FALSE. #
+OP DEL = (REF STRING_DICT dict, STRING key) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # Hash the key. Find the appropriate list head. #
+   INT hash value = DICT_HASH key;
+   REF STRING_DICT_LIST_NODE element := (heads OF dict)[hash value];
+   REF STRING_DICT_LIST_NODE previous_element := nil element list;
+    
+   # See if key already exists. It must if we are to delete it. #
+   BOOL found element := FALSE;
+   WHILE (element ISNT nil element list) AND NOT found element
+   DO
+      found element := (key OF keyval OF element = key);
+      IF found element
+      THEN
+         # Found it, so delete it. #
+         IF previous_element IS nil element list
+         THEN
+            # Delete head element. #
+            (heads OF dict)[hash value] := next OF element
+         ELSE
+            # Delete element elsewhere in the list. #
+            next OF previous_element := next OF element
+         FI;
+         # Delete the key in the separately maintained key list. #
+         VOID((keys_list OF dict) DEL ((keys_list OF dict) INDEX key));
+         retval := TRUE;
+         done
+      ELSE
+         previous_element := element;
+         element := next OF element
+      FI
+   OD;
+
+   done:
+   retval
+);
+
+# DEL when key is a single character. #
+OP DEL = (REF STRING_DICT dict, CHAR key) BOOL:
+(
+   dict DEL STRING(key)
 );
 
 # ----------------------- #
@@ -524,6 +578,12 @@ PROC get_int_dict_keys_array = (REF INT_DICT dict) []STRING:
    string_list_as_array(keys_list OF dict)
 );
 
+# Print a list of keys readably. #
+PROC print_int_dict_keys = (REF INT_DICT dict) VOID:
+(
+   (ELEMS (keys_list OF dict) = 0 | print((new line)) | string_list_print(keys_list OF dict))
+);
+
 # Return number of keys in dictionary. Overload ELEMS. #
 OP ELEMS = (REF INT_DICT dict) INT:
 (
@@ -566,6 +626,53 @@ OP NEXT = (REF INT_DICT dict) REF INT_DICT_KEYVAL:
    FI
 );
 
+# Delete the keyval with a given key from an INT dictionary. Return TRUE if key found and deleted, else FALSE. #
+OP DEL = (REF INT_DICT dict, STRING key) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # Hash the key. Find the appropriate list head. #
+   INT hash value = DICT_HASH key;
+   REF INT_DICT_LIST_NODE element := (heads OF dict)[hash value];
+   REF INT_DICT_LIST_NODE previous_element := nil int element list;
+    
+   # See if key already exists. It must if we are to delete it. #
+   BOOL found element := FALSE;
+   WHILE (element ISNT nil int element list) AND NOT found element
+   DO
+      found element := (key OF keyval OF element = key);
+      IF found element
+      THEN
+         # Found it, so delete it. #
+         IF previous_element IS nil int element list
+         THEN
+            # Delete head element. #
+            (heads OF dict)[hash value] := next OF element
+         ELSE
+            # Delete element elsewhere in the list. #
+            next OF previous_element := next OF element
+         FI;
+         # Delete the key in the separately maintained key list. #
+         VOID((keys_list OF dict) DEL ((keys_list OF dict) INDEX key));
+         retval := TRUE;
+         done
+      ELSE
+         previous_element := element;
+         element := next OF element
+      FI
+   OD;
+
+   done:
+   retval
+);
+
+# DEL when key is a single character. #
+OP DEL = (REF INT_DICT dict, CHAR key) BOOL:
+(
+   dict DEL STRING(key)
+);
+
+
 # -------------------------- #
 # Sundry related algorithms. #
 # -------------------------- #
@@ -607,7 +714,7 @@ print(("Nuts in map? ", map HASKEY "Nuts", new line));
 print(("Accessing non-existent key: ", map // "Nope", new line)); # Creates key Nope! #
 
 print(("number of keys = ", ELEMS map, new line));
-print((get_string_dict_keys_array(map), new line));
+print(("... ")); print_string_dict_keys(map);
 
 REF STRING_DICT_KEYVAL strelem := FIRST map;
 WHILE strelem ISNT nil keyval
@@ -615,6 +722,31 @@ DO
    print(("Key ", key OF strelem, " --> ", value OF strelem, newline));
    strelem := NEXT map
 OD;
+
+print(("Delete Three: ", map DEL "Three", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
+print(("Delete Three AGAIN: ", map DEL "Three", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
+print(("Delete a: ", map DEL "a", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
+print(("Delete Five: ", map DEL "Five", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
+print(("Delete One: ", map DEL "One", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
+print(("Delete Two: ", map DEL "Two", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
+print(("Delete Nope: ", map DEL "Nope", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
+print(("Delete Nope AGAIN: ", map DEL "Nope", new line));
+print(("... number of keys = ", ELEMS map, new line));
+print(("... ")); print_string_dict_keys(map);
 
 print((newline));
 
@@ -641,6 +773,28 @@ DO
    print(("Key ", key OF intelem, " --> ", value OF intelem, newline));
    intelem := NEXT imap
 OD;
+
+print(("Delete a: ", imap DEL "a", new line));
+print(("... number of keys = ", ELEMS imap, new line));
+print(("... ")); print_int_dict_keys(imap);
+print(("Delete Three: ", imap DEL "Three", new line));
+print(("... number of keys = ", ELEMS imap, new line));
+print(("... ")); print_int_dict_keys(imap);
+print(("Delete Three AGAIN: ", imap DEL "Three", new line));
+print(("... number of keys = ", ELEMS imap, new line));
+print(("... ")); print_int_dict_keys(imap);
+print(("Delete Five: ", imap DEL "Five", new line));
+print(("... number of keys = ", ELEMS imap, new line));
+print(("... ")); print_int_dict_keys(imap);
+print(("Delete Two: ", imap DEL "Two", new line));
+print(("... number of keys = ", ELEMS imap, new line));
+print(("... ")); print_int_dict_keys(imap);
+print(("Delete One: ", imap DEL "One", new line));
+print(("... number of keys = ", ELEMS imap, new line));
+print(("... ")); print_int_dict_keys(imap);
+print(("Delete Four: ", imap DEL "Four", new line));
+print(("... number of keys = ", ELEMS imap, new line));
+print(("... ")); print_int_dict_keys(imap);
 
 print((newline));
 
