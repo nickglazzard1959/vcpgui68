@@ -1839,6 +1839,8 @@ PROC instantiate_timedisplay = (PIPE p, REF TIMEDISPLAY td) VOID:
    );
 
    push_dstate;
+   # Hmm ... it looks like the garbage collector can incorrectly collect the tag string (or more) #
+   # of a TIMEDISPLAY. Try to work around that by persuading the GC the tag is in use ... #
    CO print(("*** tag OF td = ",tag OF td,newline)); CO
    STRING saved_tag := tag OF td;
    []STRING digit_textures = ("zero","one","two","three","four","five","six","seven","eight","nine");
