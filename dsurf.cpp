@@ -15,9 +15,9 @@
 // Build:
 //   g++ -O0 -g dsurf.cpp -o dsurf -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image
 //
-// Warning: Building this -02 on a 2012 Mac Mini with SDL 2.0.14 will give this error:
-//   i965: Failed to submit batchbuffer: Invalid argument
-// which is charming, isn't it? Not optimising seems to fix this! 
+// With a local build of SDL2 try:
+//   g++ -O0 -g -Wall dsurf.cpp -o dsurf -I/usr/local/include/SDL2 -L/usr/local/lib 
+//              -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image -Wl,-rpath,/usr/local/lib
 //
 // Nick Glazzard 2026.
 // -------------------
@@ -150,9 +150,6 @@ typedef struct
   DISPLAY_LIST* dlist; // Display list.
   DISPLAY_LIST* olist; // Overlay display list.
 } THREAD_DATA;
-
-// One global pointing to the SDL renderer. Used in read_thread() to ensure display is updated.
-SDL_Renderer *g_renderer_pointer = NULL;
 
 // Define a class to play a sound from a WAV file using SDL2 calls.
 #define MUS_PATH "/home/nick/gitprojects/vcpgui68/clicky.wav"
@@ -309,10 +306,6 @@ int read_thread( void* data )
                                     args[0], args[1] );
         }
         else{
-          if( string_input_line == "$*show_display_sync$\n" ){  // Ensure drawn buffer is visible now.
-            if( NULL != g_renderer_pointer )                    // but also add it to the display list!
-              SDL_RenderPresent(g_renderer_pointer);            // This overkill seems to work best so far.
-          }
           clist_p->prims.push_back(string_input_line);   // Add the primitive to the display list.
         }
         
@@ -1024,7 +1017,6 @@ void exec_display_list_element( SDL_Renderer *renderer, DRAW_STATE *dstate, CMD_
     break;
 
   case CFG_start_timer:              // ms
-    //fprintf(stderr,"*** start timer\n");
     if( dstate->timer != TIMER_NOT_SET ){
       SDL_RemoveTimer(dstate->timer);
       dstate->timer = TIMER_NOT_SET;
@@ -1033,7 +1025,6 @@ void exec_display_list_element( SDL_Renderer *renderer, DRAW_STATE *dstate, CMD_
     break;
 
   case CFG_stop_timer:               // <none>
-    //fprintf(stderr,"*** stop timer\n");
     if( dstate->timer != TIMER_NOT_SET ){
       SDL_RemoveTimer(dstate->timer);
       dstate->timer = TIMER_NOT_SET;
@@ -1338,7 +1329,6 @@ int main (int ArgCount, char **Args)
                     "Couldn't create window and renderer: %s", SDL_GetError());
     return 1;
   }
-  g_renderer_pointer = renderer; // Global copy of renderer for use in read_thread() (sigh). 
   if( TTF_Init() != 0 ){
     SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
                     "Unable to initialize TTF: %s", SDL_GetError());
@@ -1500,7 +1490,6 @@ int main (int ArgCount, char **Args)
         
         else if( event.user.code == TIMER_EVENT ){
           // Timer time out.
-          //fprintf(stderr, "*** DING! ***\n");
           printf("timer,O\n");
           fflush(stdout);
         }
@@ -1529,9 +1518,9 @@ int main (int ArgCount, char **Args)
       fprintf(stderr, "CUR mn num_prims = %ld\n", dlist.prims.size());
       fprintf(stderr, "CUR ov num_prims = %ld\n", olist.prims.size());
       // Iterate over the display list.
-      for( int i=0; i<(int)olist.prims.size(); i++ ){
-        fprintf(stderr, "[%s]\n", olist.prims[i].c_str());
-      }
+      //for( int i=0; i<(int)olist.prims.size(); i++ ){
+      //  fprintf(stderr, "[%s]\n", olist.prims[i].c_str());
+      //}
     }
  
   } // run loop.

@@ -3,6 +3,17 @@ PR read "arg_parser.a68" PR
 PR read "vcpgui.a68" PR
 PR read "angelfg.a68" PR
 
+# Some constants. #
+INT k_sine = 1;
+INT k_triangle = 2;
+INT k_square = 3;
+
+# Some state. #
+REAL volts := 1.00;      # RMS volts amplitude. #
+REAL hertz := 1000.0;    # Frequency in Hz. #
+INT waveform := k_sine;  # Waveform as an integer code. #
+
+
 PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
    IF event[1] = "D"
@@ -10,8 +21,33 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    CASE state
    IN
       (REF RADIOBUTTON rb): (
-         (which OF rb = 2 | print(("on",newline)); set_lamp(gui, "lamp", TRUE));
-         (which OF rb = 3 | print(("on",newline)); set_lamp(gui, "lamp", FALSE));
+         CASE which OF rb
+         IN
+         # 1 Vrms # (set_numericdisplay_units(gui, "display", "V"); 
+                     set_numericdisplay_function(gui, "display", "RMS");
+                     set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+         # 2 mVrms # (set_numericdisplay_units(gui, "display", "mV"); 
+                      set_numericdisplay_function(gui, "display", "RMS");
+                      set_numericdisplay_real(gui, "display", 1000*volts, 1, TRUE)),
+         # 3 Vpp # (set_numericdisplay_units(gui, "display", "V"); 
+                     set_numericdisplay_function(gui, "display", "P-P");
+                     set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+         # 4 mVpp # (set_numericdisplay_units(gui, "display", "mV"); 
+                     set_numericdisplay_function(gui, "display", "P-P");
+                     set_numericdisplay_real(gui, "display", 1000*volts, 1, TRUE)),
+         # 5 dBV # (set_numericdisplay_units(gui, "display", "dBV"); 
+                    set_numericdisplay_function(gui, "display", "RMS");
+                    set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+         # 6 dBu # (set_numericdisplay_units(gui, "display", "dBu"); 
+                    set_numericdisplay_function(gui, "display", "RMS");
+                    set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+         # 7 Hz # (set_numericdisplay_units(gui, "display", "Hz"); 
+                   set_numericdisplay_function(gui, "display", " ");
+                   set_numericdisplay_real(gui, "display", hertz, 0, TRUE)),
+         # 8 kHz # (set_numericdisplay_units(gui, "display", "kHz"); 
+                    set_numericdisplay_function(gui, "display", " ");
+                    set_numericdisplay_real(gui, "display", hertz/1000, 3, TRUE))
+         ESAC
       )
    OUT
       put(stand error, ("Expected a radio button. Got something else!", new line))
@@ -71,7 +107,7 @@ FLEX [1:0]INT centers := evenly_distribute(nd_geometry, row1_button_counts, but_
 ui_colour_base_font(gui, "button");
 add_radiobutton("parameter", 
                 "Vrms,mVrms,Vpp,mVpp,dBV,dBu,Hz,kHz", 
-                null_proc, centers[1], y, 1);
+                parameter_proc, centers[1], y, 1);
 
 # Add labels under the radio button ... #
 y +:= vertical_group_label_spacing;
@@ -101,7 +137,7 @@ centers := evenly_distribute(parameter_geometry, row2_button_counts, but_width, 
 ui_colour_base_font(gui, "button");
 add_radiobutton("waveform", 
                 "Sine,Triangle,Square", 
-                parameter_proc, centers[1], y, 1);
+                null_proc, centers[1], y, 1);
 
 # Power off button ...  #
 ui_colour(gui, "warning");

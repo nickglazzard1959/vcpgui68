@@ -46,7 +46,8 @@ PROC open_dsurf = (STRING title, INT width, INT height) PIPE:
    OD;
 
    # Run the display program and return the data needed to talk to it. #
-   PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf", 
+   PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf",
+                                                    "-u",
                                                     "--title", title,
                                                     "--fontdir", font_directory,
                                                     "--width", wint(width),
@@ -1086,7 +1087,8 @@ PROC update_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd, INT value, INT n_dp
    lz_sup OF nd := lz_sup;
 
    # Insert modified drawings. #
-   instantiate_numericdisplay(p, nd)
+   instantiate_numericdisplay(p, nd);
+   ds_show_display(p)
 );
 
 # Set the contents of a numeric display. Note value must be scaled according to n_dps by the caller. #
@@ -1837,6 +1839,8 @@ PROC instantiate_timedisplay = (PIPE p, REF TIMEDISPLAY td) VOID:
    );
 
    push_dstate;
+   CO print(("*** tag OF td = ",tag OF td,newline)); CO
+   STRING saved_tag := tag OF td;
    []STRING digit_textures = ("zero","one","two","three","four","five","six","seven","eight","nine");
    INT digit_width, digit_height, colon_width, array_width, xc, yc, x1, y1, x2, y2;
 
@@ -2133,7 +2137,7 @@ PROC check_old_tag = (STRING tag) INT:
 (
    USERPROC someproc;
    INT i_component := find_component(tag, someproc);
-   ((i_component = 0) | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)));
+   ((i_component = 0) | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)); debug);
    i_component
 );
 
