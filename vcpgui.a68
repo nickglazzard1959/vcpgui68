@@ -402,9 +402,9 @@ MODE KNOB = STRUCT( STRING tag, STRING label, USERPROC proc, INT x, y, INT angmi
 MODE SELECTOR = STRUCT( STRING tag, STRING labels, USERPROC proc, INT x, y, INT which, INT n_choices,
                         RGBACOLOUR c );
 MODE KEYPAD = STRUCT( STRING tag, USERPROC proc, INT x, y, INT ivalue, isign, idp, STRING ndtag,
-                      INT old_ivalue, old_isign, old_idp, RGBACOLOUR c );
+                      INT old_ivalue, old_isign, old_idp, BOOL active,  RGBACOLOUR c );
 MODE NUMERICDISPLAY = STRUCT( STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup,
-                              STRING units, STRING function, STRING range, RGBACOLOUR c );
+                              STRING units, STRING function, STRING range, BOOL warn, RGBACOLOUR c );
 MODE TIMER = STRUCT( STRING tag, USERPROC proc, INT milliseconds );
 MODE LAMP = STRUCT( STRING tag, INT x, y, BOOL state, RGBACOLOUR c );
 MODE TIMEDISPLAY = STRUCT( STRING tag, INT x, y, INT h, m, s, RGBACOLOUR c );
@@ -890,7 +890,7 @@ PROC read_numericdisplay_metrics = (STRING talfile) VOID:
 PROC make_numericdisplay = (STRING tag, INT x, y, INT value, INT n_digits, INT n_dps, BOOL lz_sup) REF NUMERICDISPLAY:
 (
    REF NUMERICDISPLAY new = HEAP NUMERICDISPLAY;
-   new := (tag, x, y, value, n_digits, n_dps, lz_sup, "", "", "", c OF dstate);
+   new := (tag, x, y, value, n_digits, n_dps, lz_sup, "", "", "", FALSE, c OF dstate);
    new
 );
 
@@ -950,11 +950,12 @@ PROC instantiate_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd) VOID:
    calc_numeric_bezel(nd, digit_width, array_width, x1, y1, x2, y2);
 
    # Draw a "bezel" using a rounded rectangle. #
-   ds_set_colour_rgba_struct(p, c OF nd);
+   (warn OF nd | ds_set_colour_rgba(p, 200, 80, 80, 255) | ds_set_colour_rgba_struct(p, c OF nd));
    ds_rounded_rectangle_filled(p, x1, y1, x2, y2, bezel_width OF numericdisplay_metrics );
 
    # It would be easier to work right to left, were it not for leading zero suppression. #
    # But we optionally want that, so work left to right. #
+   # We also need to make sure that there are zeros *after* any decimal point even if suppressing. #
    BOOL value_negative := (value OF nd) < 0;
    INT xc_top := xc;
    INT working_value := ABS (value OF nd);
@@ -963,7 +964,7 @@ PROC instantiate_numericdisplay = (PIPE p, REF NUMERICDISPLAY nd) VOID:
    FOR i TO (n_digits OF nd)
    DO
       INT this_digit := min2int(9, working_value % divider);  # Need to detect value too big for digits overflow! #
-      leading_zeros := leading_zeros AND (this_digit = 0);
+      leading_zeros := leading_zeros AND (this_digit = 0) AND (i < ((n_digits OF nd) - (n_dps OF nd)));
       (NOT leading_zeros | ds_sub_texture(p, digit_textures[this_digit+1], xc, yc, # show leading zeros. #
                                           downscale OF numericdisplay_metrics, TRUE, 0, 0, 0) |
             ((i = n_digits OF nd) AND (value OF nd = 0) | # suppress lzs, but show one zero if all zero. #
@@ -1125,6 +1126,7 @@ PROC set_numericdisplay_real = (PIPE p, STRING tag, REAL rvalue, INT n_dps, BOOL
    FI
 );
 
+# Set the units string of a numeric display (appears in upper part of left blank area). #
 PROC set_numericdisplay_units = (PIPE p, STRING tag, STRING units) VOID:
 (
    INT i_component := check_old_tag(tag);
@@ -1142,6 +1144,7 @@ PROC set_numericdisplay_units = (PIPE p, STRING tag, STRING units) VOID:
    FI
 );
 
+# Set the function string of a numeric display (appears in lower part of left blank area). #
 PROC set_numericdisplay_function = (PIPE p, STRING tag, STRING function) VOID:
 (
    INT i_component := check_old_tag(tag);
@@ -1159,6 +1162,7 @@ PROC set_numericdisplay_function = (PIPE p, STRING tag, STRING function) VOID:
    FI
 );
 
+# Set the range string of a numeric display (appears in middle part of left blank area). #
 PROC set_numericdisplay_range = (PIPE p, STRING tag, STRING range) VOID:
 (
    INT i_component := check_old_tag(tag);
@@ -1175,6 +1179,25 @@ PROC set_numericdisplay_range = (PIPE p, STRING tag, STRING range) VOID:
       ESAC
    FI
 );
+
+# Set or clear the 'warn' flag. This controls the bezel colour. Used by keypad when setting values. #
+PROC set_numericdisplay_warn = (PIPE p, STRING tag, BOOL warn) VOID:
+(
+   INT i_component := check_old_tag(tag);
+   IF i_component /= 0
+   THEN
+      CASE components[i_component]
+      IN
+         (REF NUMERICDISPLAY nd): (
+            warn OF nd := warn;
+            update_numericdisplay(p, nd, value OF nd, n_dps OF nd, lz_sup OF nd)
+         )
+      OUT
+         put(stand error,("set_numericdisplay_function(): Component [",tag,"] is not a NUMERICDISPLAY.",newline))
+      ESAC
+   FI
+);
+
 
 # ---- #
 # KNOB #
@@ -1490,7 +1513,7 @@ PROC read_keypad_metrics = (STRING talfile) VOID:
 PROC make_keypad = (STRING tag, USERPROC proc, INT x, y, STRING ndtag) REF KEYPAD:
 (
    REF KEYPAD new = HEAP KEYPAD;
-   new := (tag, proc, x, y, 0, 1, -1, ndtag, 0, 1, -1, c OF dstate); # ivalue, isign, idp #
+   new := (tag, proc, x, y, 0, 1, -1, ndtag, 0, 1, -1, FALSE, c OF dstate); # 0 ivalue, 1 isign, -1 idp #
    new
 );
 
@@ -1561,24 +1584,24 @@ PROC get_keypad = (PIPE p, STRING tag) REAL:
    value
 );
 
+# Convert keypad's internal representation to a REAL. #
 PROC get_keypad_internal = (REF KEYPAD kp) REAL:
 (
    REAL(isign OF kp * ivalue OF kp) / (10 ** max2int(0, idp OF kp))
 );
 
-# Save and restore the current keypad value. #
-PROC save_keypad = (REF KEYPAD kp) VOID:
+# Old key pressed: call the callback to restore the previous contents #
+# of the associated numeric display. Use event string "A,0" for this. #
+PROC old_key_keypad = (REF KEYPAD kp) VOID:
 (
-   old_ivalue OF kp := ivalue OF kp;
-   old_idp OF kp := idp OF kp;
-   old_isign OF kp := isign OF kp
+   VOID((proc OF kp) (tag OF kp, "A,0", kp))
 );
 
-PROC restore_keypad = (REF KEYPAD kp) VOID:
+# Set key pressed: call the callback to set the value in the application associated with # 
+# the keypad and numeric display. Use event string "B,0" for this. #
+PROC set_key_keypad = (REF KEYPAD kp) VOID:
 (
-   ivalue OF kp := old_ivalue OF kp;
-   idp OF kp := old_idp OF kp;
-   isign OF kp := old_isign OF kp
+   VOID((proc OF kp) (tag OF kp, "B,0", kp))
 );
 
 # Update the state and appearance of a keypad. #
@@ -1598,20 +1621,31 @@ PROC update_keypad = (PIPE p, REF KEYPAD kp, STRING event, STRING sub_tag) VOID:
       CO put(stand error, ("sub_tag = ",sub_tag," digit = ",wint(new_digit),newline)); CO
       IF new_digit >= 0
       THEN
+         # Digit key, update keypad internal value. #
          (ivalue OF kp < (max int % 10) | ivalue OF kp := 10 * ivalue OF kp + new_digit);
          (idp OF kp >= 0 | idp OF kp +:= 1)
       ELSE
+         # Special keys. #
          ((new_digit = decimal_key) AND (idp OF kp < 0) | idp OF kp := 0);
          (new_digit = negate_key | isign OF kp *:= -1);
-         (new_digit = new_key | save_keypad(kp); idp OF kp := -1; ivalue OF kp := 0; isign OF kp := 1);
+         (new_digit = new_key | idp OF kp := -1; ivalue OF kp := 0; isign OF kp := 1; 
+                                active OF kp := TRUE;
+                                (ndtag OF kp /= "" | set_numericdisplay_warn(p, ndtag OF kp, TRUE)));
          (new_digit = del_key | ivalue OF kp %:= 10; idp OF kp -:= 1; (idp OF kp <= 0 | idp OF kp := -1));
-         (new_digit = old_key | restore_keypad(kp));
-         (new_digit = set_key | save_keypad(kp))
+         (new_digit = old_key | active OF kp := FALSE; 
+                                (ndtag OF kp /= "" | set_numericdisplay_warn(p, ndtag OF kp, FALSE));
+                                old_key_keypad(kp));
+         (new_digit = set_key | active OF kp := FALSE; 
+                                (ndtag OF kp /= "" | set_numericdisplay_warn(p, ndtag OF kp, FALSE));
+                                set_key_keypad(kp))
       FI;
       CO put(stand error, ("*** value = ", get_keypad_internal(kp), newline)); CO
-      (ndtag OF kp /= "" | set_numericdisplay_real(p, ndtag OF kp, 
-                                                   get_keypad_internal(kp), max2int(0, idp OF kp), TRUE);
-                           ds_show_display(p))
+
+      # Update the associated numeric display if the keypad is active. #
+      ((ndtag OF kp /= "") AND (active OF kp) | 
+            set_numericdisplay_real(p, ndtag OF kp, 
+                                    get_keypad_internal(kp), max2int(0, idp OF kp), TRUE);
+            ds_show_display(p))
    FI;
    pop_dstate
 );

@@ -16,23 +16,30 @@ COMMENT
 
 PR read "serialio.a68" PR
 
-MODE AFG = STRUCT( PIPE p, BOOL ok, FLEX [1:0] REAL caldata );
+MODE AFG = STRUCT( PIPE p, BOOL fake, BOOL ok, FLEX [1:0] REAL caldata );
 
 # Open a serial connection to the function generator. This will be on /dev/ttyACM<dev_no>. #
-PROC open_afg = (INT dev_no) REF AFG:
+# For debug and demo purposes, this can operate *without* an AFG attached if fake is TRUE. #
+PROC open_afg = (INT dev_no, BOOL fake) REF AFG:
 (
    REF AFG afg = HEAP AFG;
    STRING dev_name := "/dev/ttyACM" + wint(dev_no);
-   ok OF afg := open_serial(dev_name, "9600,8,N,1", p OF afg);
-   (NOT ok OF afg | done);
+   fake OF afg := fake;
+   IF fake OF afg
+   THEN
+      ok OF afg := TRUE
+   ELSE
+      ok OF afg := open_serial(dev_name, "9600,8,N,1", p OF afg);
+      (NOT ok OF afg | done);
 
-   # Get the * character sent after initialisation. #
-   CHAR response := read_serial_char(p OF afg);
-   (response /= "*" | 
-         put(stand error, ("open_afg() failed.", new line));
-         close_serial(p OF afg);
-         ok OF afg := FALSE
-   );
+      # Get the * character sent after initialisation. #
+      CHAR response := read_serial_char(p OF afg);
+      (response /= "*" | 
+            put(stand error, ("open_afg() failed.", new line));
+            close_serial(p OF afg);
+            ok OF afg := FALSE
+      )
+   FI;
 
    # Read calibration file. If it doesn't exist, caldata will be empty. #
    caldata OF afg := read_1d_real_array("afg_calibration.dat");
@@ -51,7 +58,7 @@ OP AFG_INVALID = (REF AFG afg) BOOL:
 
 PROC close_afg = (REF AFG afg) VOID:
 (
-   (NOT AFG_INVALID afg |
+   ((NOT AFG_INVALID afg) AND (NOT fake OF afg) |
       close_serial(p OF afg);
       ok OF afg := FALSE
    )
@@ -65,11 +72,14 @@ PROC send_cmd_afg = (REF AFG afg, STRING cmd) BOOL:
    IF NOT AFG_INVALID afg
    THEN
       CO print(("cmd=[",cmd,"]",newline)); CO
-      write_serial_line(p OF afg, cmd);
-      CHAR response := read_serial_char(p OF afg);
-      (response /= "*" | put(stand error, ("Device response error: ", response, new line)); done);
-      CO sleep_void(1); CO
-      retval := TRUE
+      IF NOT fake OF afg
+      THEN
+         write_serial_line(p OF afg, cmd);
+         CHAR response := read_serial_char(p OF afg);
+         (response /= "*" | put(stand error, ("Device response error: ", response, new line)); done);
+         CO sleep_void(1); CO
+         retval := TRUE
+      FI
    FI;
 
    done:
@@ -241,7 +251,7 @@ PROC format_volts_string = (REAL volts, INT choice) VOID:
 
 IF FALSE
 THEN
-REF AFG afg := open_afg(0);
+REF AFG afg := open_afg(0, FALSE);
 (AFG_INVALID afg | put(stand error, ("Giving up.", new line)); stop);
 
 print((set_frequency_afg(afg, 7345.6)));

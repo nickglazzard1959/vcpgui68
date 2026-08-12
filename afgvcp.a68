@@ -8,12 +8,32 @@ INT k_sine = 1;
 INT k_triangle = 2;
 INT k_square = 3;
 
+INT k_amplitude = 1;     # Amplitude parameter type. #
+INT k_frequency = 2;     # Frequency parameter type. #
+
+INT k_linear = 1;        # Linear volts. #
+INT k_dbv = 2;           # dBV. dB referred to 1V. #   
+INT k_dbu = 3;           # dBu. dB referred to 1 mW into 600 ohms (0.7746V). #
+
 # Some state. #
 REAL volts := 1.00;      # RMS volts amplitude. #
-REAL hertz := 1000.0;    # Frequency in Hz. #
+REAL volts_min := 0.001; # 1mV RMS minimum. #
+REAL volts_max := 5.0;   # 5V RMS maximum. #
+
+REAL rms_to_pp := 2.828; # RMS to peak-peak for a sine wave. #
+BOOL is_pp := FALSE;     # Display is peak-to-peak. #
+
+REAL hertz := 1 000.0;   # Frequency in Hz. #
+REAL hertz_min := 1.0;   # 1Hx minimum frequency. #
+REAL hertz_max := 100 000.0; # 100kHz maximum frequency. #
+
 INT waveform := k_sine;  # Waveform as an integer code. #
+INT previous_waveform := k_sine; # Previously selected waveform. Used to say UNSTABLE to/from square. #
+INT parameter_type := k_amplitude; # Current parameter type. #
+REAL parameter_scale := 1.0; # Scaling between display and value. Display = scale * value. #
+INT amplitude_mode := k_linear; # Entry and display is plain V or mV. #
 
-
+# Handle selection of a parameter. #
 PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
    IF event[1] = "D"
@@ -25,28 +45,63 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
          IN
          # 1 Vrms # (set_numericdisplay_units(gui, "display", "V"); 
                      set_numericdisplay_function(gui, "display", "RMS");
-                     set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+                     set_numericdisplay_real(gui, "display", volts, 3, TRUE);
+                     parameter_type := k_amplitude;
+                     parameter_scale := 1.0;
+                     is_pp := FALSE;
+                     amplitude_mode := k_linear),
+
          # 2 mVrms # (set_numericdisplay_units(gui, "display", "mV"); 
                       set_numericdisplay_function(gui, "display", "RMS");
-                      set_numericdisplay_real(gui, "display", 1000*volts, 1, TRUE)),
+                      set_numericdisplay_real(gui, "display", 1000*volts, 1, TRUE);
+                      parameter_type := k_amplitude;
+                      parameter_scale := 1000.0;
+                      is_pp := FALSE;
+                      amplitude_mode := k_linear),
+
          # 3 Vpp # (set_numericdisplay_units(gui, "display", "V"); 
                      set_numericdisplay_function(gui, "display", "P-P");
-                     set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+                     set_numericdisplay_real(gui, "display", volts*rms_to_pp, 3, TRUE);
+                     parameter_type := k_amplitude;
+                     parameter_scale := 1.0;
+                     is_pp := TRUE;
+                     amplitude_mode := k_linear),
+
          # 4 mVpp # (set_numericdisplay_units(gui, "display", "mV"); 
                      set_numericdisplay_function(gui, "display", "P-P");
-                     set_numericdisplay_real(gui, "display", 1000*volts, 1, TRUE)),
+                     set_numericdisplay_real(gui, "display", 1000*volts*rms_to_pp, 1, TRUE);
+                     parameter_type := k_amplitude;
+                     parameter_scale := 1000.0;
+                     is_pp := TRUE;
+                     amplitude_mode := k_linear),
+
          # 5 dBV # (set_numericdisplay_units(gui, "display", "dBV"); 
                     set_numericdisplay_function(gui, "display", "RMS");
-                    set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+                    set_numericdisplay_real(gui, "display", 20.0*log(volts), 3, TRUE);
+                    parameter_type := k_amplitude;
+                    parameter_scale := 1.0;
+                    is_pp := FALSE;
+                    amplitude_mode := k_dbv),
+
          # 6 dBu # (set_numericdisplay_units(gui, "display", "dBu"); 
                     set_numericdisplay_function(gui, "display", "RMS");
-                    set_numericdisplay_real(gui, "display", volts, 3, TRUE)),
+                    set_numericdisplay_real(gui, "display", 20.0*log(volts/0.7746), 3, TRUE);
+                    parameter_type := k_amplitude;
+                    parameter_scale := 1.0;
+                    is_pp := FALSE;
+                    amplitude_mode := k_dbu),
+
          # 7 Hz # (set_numericdisplay_units(gui, "display", "Hz"); 
                    set_numericdisplay_function(gui, "display", " ");
-                   set_numericdisplay_real(gui, "display", hertz, 0, TRUE)),
+                   set_numericdisplay_real(gui, "display", hertz, 0, TRUE);
+                   parameter_type := k_frequency;
+                   parameter_scale := 1.0),
+
          # 8 kHz # (set_numericdisplay_units(gui, "display", "kHz"); 
                     set_numericdisplay_function(gui, "display", " ");
-                    set_numericdisplay_real(gui, "display", hertz/1000, 3, TRUE))
+                    set_numericdisplay_real(gui, "display", hertz/1000, 3, TRUE);
+                    parameter_type := k_frequency;
+                    parameter_scale := 0.001)
          ESAC
       )
    OUT
@@ -54,6 +109,77 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    ESAC
    FI;
    FALSE
+);
+
+# Set the current value in the numeric display with units and function strings, etc. #
+PROC set_value_in_numericdisplay = VOID:
+(
+   USERPROC proc;
+   VOID(parameter_proc("parameter", "D", components[find_component("parameter", proc)]))
+);
+
+# Handle keypad events. Deal only with OLD and SET keys (others are irrelevant). #
+PROC keypad_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   # Event A is old key: restore current value of parameter unchanged, by calling parameter_proc() callback. #
+   (event[1] = "A" | set_value_in_numericdisplay);
+
+   # Event B is set key: update value of current parameter from keypad value. #
+   (event[1] = "B" |
+         update_value_from_keypad( get_keypad(gui, "keypad") );
+         set_value_in_numericdisplay);
+
+   FALSE
+);
+
+# Update volts or hertz accounting for parameter scale. Enforce limits. #
+PROC update_value_from_keypad = (REAL new_value) VOID:
+(
+   (parameter_type = k_amplitude | 
+         volts := (amplitude_mode = k_linear | 
+                        new_value / parameter_scale |
+                        REAL temp := 10.0 ** (new_value / 20.0);
+                        (amplitude_mode = k_dbv | temp | 0.7746 * temp));
+         (is_pp | volts /:=  rms_to_pp);
+         volts := clamp_real(volts, volts_min, volts_max) |
+            hertz := new_value / parameter_scale;
+            hertz := clamp_real(hertz, hertz_min, hertz_max))
+);
+
+# Handle selection of a waveform. #
+PROC waveform_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
+(
+   IF event[1] = "D"
+   THEN
+   CASE state
+   IN
+      (REF RADIOBUTTON rb): (
+         CASE which OF rb
+         IN
+         # 1 Sine # ((waveform = k_square | set_unstable); 
+                    previous_waveform := waveform;
+                    waveform := k_sine),
+         # 2 Triangle # ((waveform = k_square | set_unstable); 
+                        previous_waveform := waveform;
+                        waveform := k_triangle),
+         # 3 Square # (set_unstable; 
+                      previous_waveform := waveform;
+                      waveform := k_square)
+         ESAC
+      )
+   OUT
+      put(stand error, ("Expected a radio button. Got something else!", new line))
+   ESAC
+   FI;
+   FALSE
+);
+
+# Turn on the UNSTABLE lamp. Wait for a response. #
+PROC set_unstable = VOID:
+(
+   set_lamp(gui, "lamp", TRUE);
+   (fake_device | sleep_void(10));
+   set_lamp(gui, "lamp", FALSE)
 );
 
 # ============ #
@@ -68,13 +194,16 @@ print(("Running under Algol 68 Genie 3.12.0",newline));
 # Parse command line arguments. These MUST appear after --. #
 REF ARG_PARSE arg_parser := make_arg_parser("Angel Function Generator Virtual Control Panel");
 REF INT device_number := arg_add_int_option(arg_parser, "-d", "--device",
-                                                "Device number.",
-                                                0);
+                                            "Device number.",
+                                            0);
+REF BOOL fake_device := arg_add_flag(arg_parser, "-f", "--fake",
+                                     "Do not try to connect to an AFG, but fake the device.",
+                                     FALSE);
 ( NOT parse_args(arg_parser) |
       put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
 
 # Try to open the device before we do anything with the GUI. #
-REF AFG afg := open_afg(0);
+REF AFG afg := open_afg(device_number, fake_device);
 (AFG_INVALID afg | put(stand error, ("Cannot open function generator. Giving up.", new line));
                    stop);
 
@@ -85,12 +214,13 @@ PIPE gui := open_gui("ANGEL DDS Function Generator", width, height);
 # Numeric display ... Move so the top left of this is 10 pixels from the top left of the window. #
 INT margin = 10;
 ui_colour(gui, "feature");
-add_numericdisplay("display", width%2, 65, 0, 6, 0, TRUE);
+add_numericdisplay("display", width%2, 65, 1, 6, 3, TRUE);
 move_component("display", "tl", margin, margin);
 
 # Buttons row 1 #
 # ------------- #
 # Center this single radio button for parameter selection on the numeric display.  #
+
 GEOMETRY nd_geometry;
 get_geometry("display", nd_geometry);
 
@@ -137,7 +267,7 @@ centers := evenly_distribute(parameter_geometry, row2_button_counts, but_width, 
 ui_colour_base_font(gui, "button");
 add_radiobutton("waveform", 
                 "Sine,Triangle,Square", 
-                null_proc, centers[1], y, 1);
+                waveform_proc, centers[1], y, 1);
 
 # Power off button ...  #
 ui_colour(gui, "warning");
@@ -158,17 +288,20 @@ INT nd_right_edge_x := margin + width OF nd_geometry;
 INT key_xc := (nd_right_edge_x + width) % 2;
 
 ui_colour_base_font(gui, "button");
-add_keypad("keypad", null_proc, key_xc, height%2, "display");
+add_keypad("keypad", keypad_proc, key_xc, height%2, "display");
 
 # Move the keypad so the top edge is margin from the window top. #
 GEOMETRY keypad_geometry;
 get_geometry("keypad", keypad_geometry);
 move_component("keypad", "tl", key_xc-(width OF keypad_geometry%2), margin);
 
-add_lamp("lamp", 500, y, FALSE);
+add_lamp("lamp", key_xc, y-vertical_group_label_spacing, FALSE);
+ui_colour(gui, "label");
+ds_text_in_font(gui, "UNSTABLE", key_xc, y, TRUE, 0);
 
 # Create and run the GUI. #
 instantiate(gui);
+set_value_in_numericdisplay; # Get a sane initial display. #
 run_event_loop(gui);
 
 # Shut down. #
