@@ -56,6 +56,7 @@ OP AFG_INVALID = (REF AFG afg) BOOL:
    NOT (ok OF afg)
 );
 
+# Close the connection to the AFG. #
 PROC close_afg = (REF AFG afg) VOID:
 (
    ((NOT AFG_INVALID afg) AND (NOT fake OF afg) |
@@ -212,14 +213,14 @@ PROC set_volts_afg = (REF AFG afg, REAL volts, STRING variant) BOOL:
    ESAC;
 
    STRING volt_string := "Invalid voltage";
-   (retval | format_volts_string(volts, choice));
+   (retval | format_volts_string(afg, volts, choice));
 
    done:
    retval
 );
 
 # Format the volts string for display on the LCD and send the string. #
-PROC format_volts_string = (REAL volts, INT choice) VOID:
+PROC format_volts_string = (REF AFG afg, REAL volts, INT choice) VOID:
 (
    STRING result;
    STRING supplement := (choice = 1 | " P-P" | " RMS");

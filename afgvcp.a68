@@ -1,3 +1,18 @@
+COMMENT
+afgvcp.a68 - Virtual control panel for a homemade DDS function generator
+========================================================================
+
+This uses the VCP GUI and the device control functions in angelfg.a68.
+
+The initial state matches the AFG configuration when it is initialised
+(which it is when a connection is opened to it). Note that this program
+always keeps amplitude in RMS (sine) volts and converts to and from 
+that as needed for display and new value entry purposes.
+
+Nick Glazzard 2026
+------------------
+COMMENT
+
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
 PR read "vcpgui.a68" PR
@@ -28,10 +43,10 @@ REAL hertz_min := 1.0;   # 1Hx minimum frequency. #
 REAL hertz_max := 100 000.0; # 100kHz maximum frequency. #
 
 INT waveform := k_sine;  # Waveform as an integer code. #
-INT previous_waveform := k_sine; # Previously selected waveform. Used to say UNSTABLE to/from square. #
 INT parameter_type := k_amplitude; # Current parameter type. #
 REAL parameter_scale := 1.0; # Scaling between display and value. Display = scale * value. #
 INT amplitude_mode := k_linear; # Entry and display is plain V or mV. #
+INT device_format_choice := 2; # How to format volts string on AFG: 1=p-p, 2=RMS, 3=dBV, 4=dBu. #
 
 # Handle selection of a parameter. #
 PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
@@ -49,7 +64,8 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
                      parameter_type := k_amplitude;
                      parameter_scale := 1.0;
                      is_pp := FALSE;
-                     amplitude_mode := k_linear),
+                     amplitude_mode := k_linear;
+                     device_format_choice := 2),
 
          # 2 mVrms # (set_numericdisplay_units(gui, "display", "mV"); 
                       set_numericdisplay_function(gui, "display", "RMS");
@@ -57,7 +73,8 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
                       parameter_type := k_amplitude;
                       parameter_scale := 1000.0;
                       is_pp := FALSE;
-                      amplitude_mode := k_linear),
+                      amplitude_mode := k_linear;
+                      device_format_choice := 2),
 
          # 3 Vpp # (set_numericdisplay_units(gui, "display", "V"); 
                      set_numericdisplay_function(gui, "display", "P-P");
@@ -65,7 +82,8 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
                      parameter_type := k_amplitude;
                      parameter_scale := 1.0;
                      is_pp := TRUE;
-                     amplitude_mode := k_linear),
+                     amplitude_mode := k_linear;
+                     device_format_choice := 1),
 
          # 4 mVpp # (set_numericdisplay_units(gui, "display", "mV"); 
                      set_numericdisplay_function(gui, "display", "P-P");
@@ -73,7 +91,8 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
                      parameter_type := k_amplitude;
                      parameter_scale := 1000.0;
                      is_pp := TRUE;
-                     amplitude_mode := k_linear),
+                     amplitude_mode := k_linear;
+                     device_format_choice := 1),
 
          # 5 dBV # (set_numericdisplay_units(gui, "display", "dBV"); 
                     set_numericdisplay_function(gui, "display", "RMS");
@@ -81,7 +100,8 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
                     parameter_type := k_amplitude;
                     parameter_scale := 1.0;
                     is_pp := FALSE;
-                    amplitude_mode := k_dbv),
+                    amplitude_mode := k_dbv;
+                    device_format_choice := 3),
 
          # 6 dBu # (set_numericdisplay_units(gui, "display", "dBu"); 
                     set_numericdisplay_function(gui, "display", "RMS");
@@ -89,7 +109,8 @@ PROC parameter_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
                     parameter_type := k_amplitude;
                     parameter_scale := 1.0;
                     is_pp := FALSE;
-                    amplitude_mode := k_dbu),
+                    amplitude_mode := k_dbu;
+                    device_format_choice := 4),
 
          # 7 Hz # (set_numericdisplay_units(gui, "display", "Hz"); 
                    set_numericdisplay_function(gui, "display", " ");
@@ -118,6 +139,30 @@ PROC set_value_in_numericdisplay = VOID:
    VOID(parameter_proc("parameter", "D", components[find_component("parameter", proc)]))
 );
 
+# Set the current amplitude or frequency value in the AFG hardware. #
+PROC set_value_in_device = (REF AFG afg) VOID:
+(
+   IF NOT fake_device
+   THEN
+      (parameter_type = k_amplitude |
+            VOID(set_rms_volts_afg(afg, volts)); update_volts_display(afg) |
+               VOID(set_frequency_afg(afg, hertz)))
+   FI
+);
+
+PROC update_volts_display = (REF AFG afg) VOID:
+(
+   REAL mod_volts := volts;
+   CASE device_format_choice
+   IN
+   # 1 P-P # (mod_volts := volts * rms_to_pp),
+   # 2 RMS # (mod_volts := volts),
+   # 3 dBV # (mod_volts := 20.0*log(volts)),
+   # 4 dBu # (mod_volts := 20.0*log(volts/0.7746))
+   ESAC;
+   format_volts_string(afg, mod_volts, device_format_choice)
+);
+
 # Handle keypad events. Deal only with OLD and SET keys (others are irrelevant). #
 PROC keypad_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
@@ -127,7 +172,8 @@ PROC keypad_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    # Event B is set key: update value of current parameter from keypad value. #
    (event[1] = "B" |
          update_value_from_keypad( get_keypad(gui, "keypad") );
-         set_value_in_numericdisplay);
+         set_value_in_numericdisplay;
+         set_value_in_device(afg));
 
    FALSE
 );
@@ -146,7 +192,9 @@ PROC update_value_from_keypad = (REAL new_value) VOID:
             hertz := clamp_real(hertz, hertz_min, hertz_max))
 );
 
-# Handle selection of a waveform. #
+# Handle selection of a waveform. When switching to or from SQUARE, the AFG mutes its #
+# output and waits for 20 seconds for things to stabilize (can't recall why I do that TBH!). #
+# Use an UNSTABLE lamp to notify the user when this muting happens. #
 PROC waveform_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
    IF event[1] = "D"
@@ -156,16 +204,17 @@ PROC waveform_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
       (REF RADIOBUTTON rb): (
          CASE which OF rb
          IN
-         # 1 Sine # ((waveform = k_square | set_unstable); 
-                    previous_waveform := waveform;
-                    waveform := k_sine),
-         # 2 Triangle # ((waveform = k_square | set_unstable); 
-                        previous_waveform := waveform;
-                        waveform := k_triangle),
-         # 3 Square # (set_unstable; 
-                      previous_waveform := waveform;
-                      waveform := k_square)
-         ESAC
+         # 1 Sine # ((waveform = k_square | set_unstable(TRUE)); 
+                    waveform := k_sine;
+                    VOID(set_waveform_afg(afg, "sine"))),
+         # 2 Triangle # ((waveform = k_square | set_unstable(TRUE)); 
+                        waveform := k_triangle;
+                        VOID(set_waveform_afg(afg, "triangle"))),
+         # 3 Square # (set_unstable(TRUE); 
+                      waveform := k_square;
+                      VOID(set_waveform_afg(afg, "square")))
+         ESAC;
+         set_unstable(FALSE)
       )
    OUT
       put(stand error, ("Expected a radio button. Got something else!", new line))
@@ -175,11 +224,10 @@ PROC waveform_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 );
 
 # Turn on the UNSTABLE lamp. Wait for a response. #
-PROC set_unstable = VOID:
+PROC set_unstable = (BOOL on) VOID:
 (
-   set_lamp(gui, "lamp", TRUE);
-   (fake_device | sleep_void(10));
-   set_lamp(gui, "lamp", FALSE)
+   set_lamp(gui, "lamp", on);
+   (fake_device AND on | sleep_void(10))
 );
 
 # ============ #
@@ -199,6 +247,9 @@ REF INT device_number := arg_add_int_option(arg_parser, "-d", "--device",
 REF BOOL fake_device := arg_add_flag(arg_parser, "-f", "--fake",
                                      "Do not try to connect to an AFG, but fake the device.",
                                      FALSE);
+REF BOOL slow_update := arg_add_flag(arg_parser, "-s", "--slow",
+                                     "Update DSURF only with explicit show_display commands.",
+                                     FALSE);
 ( NOT parse_args(arg_parser) |
       put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
 
@@ -209,6 +260,7 @@ REF AFG afg := open_afg(device_number, fake_device);
 
 # Open and configure the GUI display surface. #
 INT width := 600, height := 250;
+(slow_update | ds_set_fast_update(FALSE));
 PIPE gui := open_gui("ANGEL DDS Function Generator", width, height);
 
 # Numeric display ... Move so the top left of this is 10 pixels from the top left of the window. #

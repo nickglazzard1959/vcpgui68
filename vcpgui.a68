@@ -12,7 +12,9 @@ PR read "utility.a68" PR
 # Run DSURF and communicate with it. #
 # ================================== #
 
+# Some configuration. #
 STRING font_directory := "/usr/share/fonts/truetype/liberation2";
+BOOL fast_update := TRUE;
 
 # Handle end of the pipe connections to DSURF (DSURF exited?). #
 # Establish by using "on logical file end(pipes)" in main line,  #
@@ -45,9 +47,11 @@ PROC open_dsurf = (STRING title, INT width, INT height) PIPE:
       envars[i] := envar_names[i] + "=" + envalue
    OD;
 
+   STRING fast_update_string := (fast_update | "--update" | "");
+
    # Run the display program and return the data needed to talk to it. #
    PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf",
-                                                    "-u",
+                                                    fast_update_string,
                                                     "--title", title,
                                                     "--fontdir", font_directory,
                                                     "--width", wint(width),
@@ -317,12 +321,6 @@ PROC ds_text_in_font = ( PIPE p, STRING s, INT x, y, BOOL centered, INT dy ) VOI
    write_dsurf(p, out_string+rgb_font_string)  
 );
 
-# Set the TrueType font directory to search for fonts. #
-PROC ds_set_fontdir = ( STRING dir ) VOID:
-(
-   font_directory := dir
-);
-
 # Set the current font by number. #
 PROC ds_set_font = ( PIPE p, INT ifont ) VOID:
 (
@@ -383,6 +381,22 @@ PROC ds_stop_timer = ( PIPE p ) VOID:
    write_dsurf(p, "$*stop_timer$")
 );
 
+# ---------------- #
+# DS configuration #
+# ---------------- #
+# To be called BEFORE open_gui() #
+
+# Set the TrueType font directory to search for fonts. Call BEFORE open_gui(). #
+PROC ds_set_fontdir = ( STRING dir ) VOID:
+(
+   font_directory := dir
+);
+
+# Set or clear the "fast update" capability flag. If FALSE, only update with show_display commands. #
+PROC ds_set_fast_update = ( BOOL yes ) VOID:
+(
+   fast_update := yes
+);
 
 # ============== #
 #  TINY UI CODE  #

@@ -635,7 +635,7 @@ OP DEL = (REF INT_DICT dict, STRING key) BOOL:
    INT hash value = DICT_HASH key;
    REF INT_DICT_LIST_NODE element := (heads OF dict)[hash value];
    REF INT_DICT_LIST_NODE previous_element := nil int element list;
-    
+
    # See if key already exists. It must if we are to delete it. #
    BOOL found element := FALSE;
    WHILE (element ISNT nil int element list) AND NOT found element

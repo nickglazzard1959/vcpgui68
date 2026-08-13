@@ -1,3 +1,5 @@
+PR heap=128M PR
+
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
 PR read "config_parser.a68" PR
@@ -83,8 +85,11 @@ THEN
    OD
 FI;
 
+BOOL immediate_update := config_get_bool_value(cp, "immediate-update", FALSE);
+ 
 # Open and configure the GUI display surface. #
 INT width := 386, height := 130;
+ds_set_fast_update(immediate_update);
 PIPE gui := open_gui("Clock", width, height);
 
 # Get current local time. #

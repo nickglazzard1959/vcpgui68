@@ -378,6 +378,18 @@ PROC string_to_choice_index = (STRING test, STRING choices) INT:
    retval
 );
 
+# Convert a string to a BOOL. Accept true and false in any combination of case. #
+PROC string_to_bool = (STRING s) BOOL:
+(
+   BOOL retval := FALSE;
+   STRING slow := string_to_lower(s);
+   (slow = "true" | retval := TRUE; done);
+   (slow = "false" | done);
+   put(stand error, ("string_to_bool(): ",s," not recognised, returning FALSE.",new line));
+   done:
+   retval
+);
+
 # Check string only contains decimal digits. #
 PROC all_digits = (STRING s) BOOL:
 (

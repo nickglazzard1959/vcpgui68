@@ -25,7 +25,7 @@ FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2))
 Beyond the straightforward use of getting settings from a configuration file, the key-value pairs can
 be grouped into 'tables' and those tables can be used pretty much as separate 'dictionaries' or
 'associative arrays' with string keys and string (plain, literal or multi-line), integer, real
-or array-of-real values. Key-vslue pairs and tables can be added to a CONFIG_PARSE object without
+or array-of-real values. Key-value pairs and tables can be added to a CONFIG_PARSE object without
 referencing a file at all, which may sometimes be useful.
 
 Nick Glazzard 2026.
@@ -35,7 +35,8 @@ COMMENT
 PR read "dictionaries.a68" PR
 PR read "utility.a68" PR
 
-MODE CONFIG_PARSE = STRUCT(STRING config_file_name,  REF STRING_DICT config_dict,
+MODE CONFIG_PARSE = STRUCT(STRING config_file_name, 
+                           REF STRING_DICT config_dict,
                            STRING_LIST tables);
 
 # Make a config file parser. #
@@ -139,6 +140,21 @@ PROC config_add_key_value = (REF CONFIG_PARSE config_parser, STRING table, STRIN
    FI;
    done_adding:
    SKIP
+);
+
+# Delete a key-value from the string dictionary. #
+PROC config_delete_key_value = (REF CONFIG_PARSE config_parser, STRING table, STRING key) VOID:
+(
+   STRING full_key := (table = "" | key | table + "." + key);
+   IF (NOT ((config_dict OF config_parser) HASKEY full_key))
+   THEN
+      put(stand error, 
+          ("Config_parser: Key to delete not found: ",full_key," (ignored).",new line))
+   ELSE
+      BOOL status := (config_dict OF config_parser) DEL full_key;
+      (NOT status | 
+            put(stand error, ("Config_parser: Failed to delete key: ",full_key,new line)))
+   FI
 );
 
 # Convert escape sequences to characters. #
@@ -433,6 +449,28 @@ PROC config_get_int_value = (REF CONFIG_PARSE cp, STRING key, INT default) INT:
    retval
 );
 
+# Get a boolean value from the parsed config file. #
+PROC config_get_bool_value = (REF CONFIG_PARSE cp, STRING key, BOOL default) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF NOT ((config_dict OF cp) HASKEY key)
+   THEN
+      config_undefined_key_msg(key);
+      retval := default
+   ELSE
+      STRING value := (config_dict OF cp) // key;
+      IF (value[1] = "B")
+      THEN
+         retval := string_to_bool(value[2:])
+      ELSE
+         config_wrong_value_type_msg(key, "BOOL", value[1]);
+         retval := default
+      FI
+   FI;
+   retval
+);
+
 # Get a real value from the parsed config file. #
 PROC config_get_real_value = (REF CONFIG_PARSE cp, STRING key, REAL default) REAL:
 (
@@ -697,17 +735,26 @@ put(stand error, ("ra = ", ra, newline));
 INT anotherint := config_get_int_value(cp, "anotherint", -1234);
 put(stand error, ("anotherint = ", anotherint, newline));
 
+BOOL abool := config_get_bool_value(cp, "abool", FALSE);
+put(stand error, ("abool = ", abool, newline));
+
+BOOL anotherbool := config_get_bool_value(cp, "anotherbool", TRUE);
+put(stand error, ("anotherbool = ", anotherbool, newline));
+
+print(("================================",newline));
 config_display_contents(cp, TRUE);
 
 config_add_key_value(cp, "", "new-key", """A new key.""");
 config_add_key_value(cp, "", "new-real", "2.718");
 config_add_key_value(cp, "", "new-int", "666");
+print(("================================",newline));
 config_display_contents(cp, TRUE);
 
 config_add_table(cp, "new-table");
 config_add_key_value(cp, "new-table", "new-key", """A new key.""");
 config_add_key_value(cp, "new-table", "new-real", "2.718");
 config_add_key_value(cp, "new-table", "new-int", "666");
+print(("================================",newline));
 config_display_contents(cp, TRUE);
 
 print(("write config: ",write_config_file(cp, "newconfig.ini"),newline));
@@ -718,12 +765,25 @@ THEN
    put(stand error, ("Failed to parse config file. Giving up.", newline));
    stop
 FI;
+print(("================================",newline));
 config_display_contents(read_cp, TRUE);
 
 REF CONFIG_PARSE int_cp := make_config_parser("internal.ini");
 config_add_key_value(int_cp, "", "new-int", "696969");
 config_add_table(int_cp, "another-table");
 config_add_key_value(int_cp, "another-table", "thing", """String 696969""");
+config_add_key_value(int_cp, "another-table", "new-bool", "true");
+config_add_key_value(int_cp, "another-table", "new-array", "[9,8,7]");
+print(("================================",newline));
+config_display_contents(int_cp, TRUE);
+
+config_delete_key_value(int_cp, "another-table", "thing");
+print(("================================",newline));
+config_display_contents(int_cp, TRUE);
+
+config_delete_key_value(int_cp, "another-table", "new-array");
+config_add_key_value(int_cp, "another-table", "finalthing", """The last test.""");
+print(("================================",newline));
 config_display_contents(int_cp, TRUE)
 
 FI;
