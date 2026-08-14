@@ -11,7 +11,7 @@ used after the device has been plugged in and before this software is used.
 Although short, getting this to work took a couple of days! It is very basic in
 some ways, but maybe less is more. I can see no way to handle binary i/o in a68g
 (I tried some things, but to no avail), so only 'ASCII' strings can be transferred.
-This fine for *almost* everything.
+This is fine for *almost* everything.
 
 Also, trying to detect certain error conditions (using 'events') did not work as
 expected, so if something goes wrong, the default action (exit, usually) will be

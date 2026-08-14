@@ -179,10 +179,7 @@ PROC dec_range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 # MAIN PROGRAM #
 # ============ #
 
-STRING title := "Virtual control panel for a Rigol DM3000 series multi-meter. V0.1";
-print((newline,title,newline));
-print(((ELEMS title)*"=",newline));
-print(("Running under Algol 68 Genie 3.12.0",newline));
+print_std_title("Virtual control panel for a Rigol DM3000 series multi-meter. V0.1");
 
 # Parse command line arguments. These MUST appear after --. #
 REF ARG_PARSE arg_parser := make_arg_parser("Rigol DM3K Multimeter Virtual Control Panel");
@@ -198,18 +195,7 @@ REF DMKKK device := open_dm3k(device_number, TRUE);
 
 # Open and configure the GUI display surface. #
 INT width := 600, height := 250;
-
-PIPE dsurf_pipe = open_dsurf("Rigol DM3K Multimeter", width, height);
-print(("DSURF PID = ", wint(pid OF dsurf_pipe), new line));
-on logical file end(read OF dsurf_pipe, dsurf_end_handler);
-
-read_component_metrics("dsurf.tal");
-ds_load_texture(dsurf_pipe, "dsurf.tal");
-ds_load_font(dsurf_pipe, "LiberationSans-Regular.ttf", 15, 1);
-
-# Define the GUI components. #
-ds_use_main(dsurf_pipe);
-ds_reset_display(dsurf_pipe);
+PIPE dsurf_pipe := open_gui("Rigol DM3K Multimeter", width, height);
 
 # Background ...  #
 ds_set_colour_rgba(dsurf_pipe, 50, 50, 50, 255);

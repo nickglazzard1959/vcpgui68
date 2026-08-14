@@ -5,7 +5,7 @@ calibrate_afg.a68 - Write an amplitude calibration file for the AFG using a Rigo
 This measures the RMS sine output level for every combination of range, attenuator and
 low gain mode setting and writes a binary file containing the resulting 1536 measured
 voltages. Specifying an output amplitude then is reduced to searching for the nearest
-available output vvalue in this table and setting the range, attenuation and gain mode to
+available output value in this table and setting the range, attenuation and gain mode to
 get that value.
 
 Nick Glazzard 2026

@@ -25,7 +25,7 @@ The variables can then be used to control the behaviour of the program.
 Any number of positional arguments can also be supplied. These must be
 treated as strings, of course. The number of supplied positional arguments
 can be retrieved with arg_get_n_positionals() (after parse_args() has run),
-and each postional arg can be retried by its positional index with
+and each postional arg can be retrieved by its positional index with
 arg_get_positional_n().
 
 See the TESTS section at the bottom of the file for a usage example.
@@ -75,6 +75,7 @@ PROC arg_set_description = (REF ARG_PARSE arg_parser, STRING long_desc) VOID:
 );
 
 # Internal functions. These just extend FLEX arrays. #
+# Add non-positional argument (option or flag). #
 PROC arg_add_any_option = (REF ARG_PARSE arg_parser, REF ARG_OPTION new) VOID:
 (
    [UPB (options OF arg_parser) + 1] REF ARG_OPTION temp;
@@ -83,6 +84,7 @@ PROC arg_add_any_option = (REF ARG_PARSE arg_parser, REF ARG_OPTION new) VOID:
    (options OF arg_parser)[UPB (options OF arg_parser)] := new
 );
 
+# Add a positional argument. #
 PROC arg_add_positional = (REF ARG_PARSE arg_parser, STRING posarg) VOID:
 (
    [UPB (positionals OF arg_parser) + 1] STRING temp;

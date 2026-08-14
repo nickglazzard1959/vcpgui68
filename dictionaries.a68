@@ -112,6 +112,7 @@ PROC string_list_as_array = (REF STRING_LIST list) []STRING:
    retval
 );
 
+# Convert a string array to a string list. #
 PROC string_array_as_list = (REF []STRING array) REF STRING_LIST:
 (
    REF STRING_LIST retval := STRING_LIST_INIT HEAP STRING_LIST;
@@ -119,6 +120,7 @@ PROC string_array_as_list = (REF []STRING array) REF STRING_LIST:
    retval
 );
 
+# Print the contents of a string list. #
 PROC string_list_print = (REF STRING_LIST list) VOID:
 (
    INT line_length := 0;
@@ -284,8 +286,9 @@ OP DEL = (REF STRING_LIST list, INT index) STRING:
 # Dictionary hash functions. #
 # -------------------------- #
 
-# Hash function for strings. Used to hash keys. #
 INT hash modulus = 256;
+
+# Hash function for strings. Used to hash keys. #
 OP DICT_HASH = (STRING key) INT:
 (
    INT result := ABS ( UPB key - LWB key ) MOD hash modulus;

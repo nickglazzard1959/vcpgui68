@@ -1,4 +1,15 @@
-PR heap=128M PR
+COMMENT
+clockvcp.a68 - A clock to demo some VCPGUI facilities.
+======================================================
+
+A pretty minimal example which runs without any weird hardware attached.
+Also shows some features of the config_parser functions.
+
+Nick Glazzard 2026
+------------------
+COMMENT
+
+PR heap=128M PR # Needs more than default heap size. Not sure why. #
 
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
@@ -9,6 +20,7 @@ PR read "vcpgui.a68" PR
 BOOL local := TRUE;
 HMSTIME delta := make_hms(0, 0, 0, 0);
 
+# Handle timer events. #
 PROC tick_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
    CASE state
@@ -25,6 +37,7 @@ PROC tick_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    FALSE
 );
 
+# Handle time zone selection events. #
 PROC lab_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
    IF event[1] = "D"
@@ -58,10 +71,7 @@ PROC lab_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 # MAIN PROGRAM #
 # ============ #
 
-STRING title := "Simple Clock. V0.1";
-print((newline,title,newline));
-print(((ELEMS title)*"=",newline));
-print(("Running under Algol 68 Genie 3.12.0",newline));
+print_std_title("Simple Clock. V0.1");
 
 # Parse the configuration file. #
 REF CONFIG_PARSE cp := make_config_parser("clock-cities.ini");

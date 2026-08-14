@@ -1,0 +1,171 @@
+COMMENT
+mindoc68.a68 - Very (very) minimal documentation extraction program for a68 code.
+=================================================================================
+
+COMMENT
+
+PR read "utility.a68" PR
+PR read "dictionaries.a68" PR
+PR read "arg_parser.a68" PR
+
+CHAR hash = REPR 35; # Hash - avoids Emacs A68 syntax hinting going mad. #
+
+PROC format_procop = (REF STRING_LIST comments, STRING procop, REF FILE fout) VOID:
+(
+   STRING code_fence = 3 * "`";
+   
+   # Output the function definition. #
+   put(fout, (new line, code_fence, new line,
+              procop, new line,
+              code_fence, new line));
+
+   # Output the comments describing the function. #
+   REF STRING_LIST_ELEMENT list_line := FIRST comments;
+   WHILE list_line ISNT nil_sle
+   DO
+      STRING output_line := trim( strip_char(value OF list_line, hash) );
+      put(fout, (output_line, new line));
+      list_line := NEXT comments
+   OD;
+
+   # End with a horizontal rule. #
+   put(fout, (new line, "---", new line))
+);
+
+PROC format_sub_section = (STRING section, REF FILE fout) VOID:
+(
+   put(fout, (new line, hash, hash, " ", trim(strip_char(section, hash)), new line))
+);
+
+PROC format_section = (STRING section, REF FILE fout) VOID:
+(
+   put(fout, (new line, hash, " ", trim(strip_char(section, hash)), new line))
+);
+
+PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
+(
+   # Open the source file. #
+   FILE fin;
+   INT status := open_file(source_file, "r", fin);
+   ( status /= 0 |
+         print_os_error("Cannot open source file", status); 
+         stop);
+
+   # Output a section header for the file. #
+   format_section(source_file, fout);
+
+   # Read the file. Identify PROC and OP specifically. #
+   BOOL eof := FALSE;
+   PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
+   STRING input_line;
+   on file end(fin, at_eof);
+
+   # Keep accumulated description lines on a string list. #
+   REF STRING_LIST accum := STRING_LIST_INIT LOC STRING_LIST;
+
+   # Loop over all lines in the file. #
+   BOOL last_empty := TRUE;
+   BOOL last_comment := FALSE;
+   BOOL multi_procop := FALSE;
+   STRING multi_procop_def := "";
+   DO
+      get(fin, (input_line, new line)); (eof | file_end);
+      input_line := trim(input_line); # Remove leading and trailing white space. #
+
+      # First deal with multi-line PROC or OP definition accumulation. #
+      # Do nothing else until this is complete. #
+      IF multi_procop
+      THEN
+         multi_procop_def +:= (" " + input_line);
+         (ends_with(input_line, ":") |
+               format_procop(accum, multi_procop_def, fout);
+               VOID(CLEAR accum);
+               multi_procop_def := "";
+               multi_procop := FALSE)
+      ELSE
+
+         # Classify the line. #
+         BOOL empty := (ELEMS input_line = 0);
+         BOOL procop := begins_with(input_line, "PROC") OR begins_with(input_line, "OP");
+         BOOL comment := (empty | FALSE | input_line[1] = hash);
+
+         # Transition from blank to comment. Start new accumulation. #
+         IF last_empty AND comment
+         THEN
+            VOID(CLEAR accum);
+            accum +:= input_line
+
+         # Transition from comment to blank. Test for section, format. Discard accumulation. #
+         ELIF last_comment AND empty
+         THEN
+            STRING last_comment_string := strip_blank( POP accum );
+            BOOL section := begins_with(last_comment_string, "#---") OR 
+                            begins_with(last_comment_string, "#===");
+            (section | 
+                  STRING section_string := POP accum;
+                  (NOT string in string("TEST", NIL, section_string) |
+                        format_sub_section(section_string, fout))
+            );
+            VOID(CLEAR accum)
+
+         # Transition from comment to PROC or OP. Format description. #
+         # However, PROC and OP declarations may span multiple lines. #
+         # This will be the case if the line doesn't end in a colon.  #
+         ELIF last_comment AND procop
+         THEN
+            multi_procop := NOT ends_with(input_line, ":");
+            (NOT multi_procop |
+                  format_procop(accum, input_line, fout);
+                  VOID(CLEAR accum) |
+                     multi_procop_def := input_line
+            );
+
+         # Continuing a comment block after first line. #
+         ELIF last_comment AND comment
+         THEN
+            accum +:= input_line
+         FI;
+
+         last_empty := empty;
+         last_comment := comment
+      FI # Not dealing with a multi-line PROC or OP definition. #
+   OD;
+
+   file_end:
+   close(fin)
+);
+
+# ============ #
+# MAIN PROGRAM #
+# ============ #
+
+print_std_title("Minimal Documentation Extraction Program V0.1");
+
+# Parse command line arguments. These MUST appear after --. #
+REF ARG_PARSE arg_parser := make_arg_parser("Minimal Documentation Extraction Program");
+( NOT parse_args(arg_parser) |
+      put(stand error, ("Unknown or malformed command line arguments.", new line)); 
+      stop );
+
+INT npos := arg_get_n_positionals(arg_parser);
+( npos /= 2 | 
+      put(stand error, ("Expected source and output file name positional arguments.", new line)); 
+      stop );
+
+STRING source_file := arg_get_positional_n(arg_parser, 1);
+STRING output_file := arg_get_positional_n(arg_parser, 2);
+print(("Source file: ", source_file, new line));
+print(("Output file: ", output_file, new line));
+
+# Create the output file. #
+FILE fout;
+INT status := open_file(output_file, "w", fout);
+( status /= 0 |
+      print_os_error("Cannot create output file", status); 
+      stop);
+
+# Process the source file.  #
+process_source_file(source_file, fout);
+
+# Close the output file. #
+close(fout)

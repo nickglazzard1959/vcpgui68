@@ -37,7 +37,7 @@ PROC run_command_get_output = (STRING cmd, REF STRING output) BOOL:
    retval
 );
 
-# Return a string denoting the OS being used. #
+# Return a string denoting the OS being used (debian, macos or linux for now). #
 PROC get_os_name = STRING:
 (
    STRING retval := "unknown";
@@ -56,6 +56,14 @@ PROC get_os_name = STRING:
       FI
    FI;
    retval
+);
+
+# Print a program title in a standard format. #
+PROC print_std_title = (STRING title) VOID:
+(
+   print((newline,title,newline));
+   print(((ELEMS title)*"=",newline));
+   print(("Running under Algol 68 Genie 3.12.0",newline))
 );
 
 
@@ -180,10 +188,12 @@ OP > = (HMSTIME a, HMSTIME b) BOOL:
 # ------------------------ #
 
 # Degrees to radians operator. #
-OP DEGRAD = (REAL a) REAL : (a * pi / 180.0);
+OP DEGRAD = (REAL a) REAL : 
+   (a * pi / 180.0);
 
 # Radians to degrees operator. #
-OP RADDEG = (REAL a) REAL: (180.0 * a / pi);
+OP RADDEG = (REAL a) REAL: 
+   (180.0 * a / pi);
 
 # Check v is in the range lo to hi inclusive. #
 PROC check_in_range_int = (INT v, lo, hi) BOOL:
@@ -311,19 +321,6 @@ PROC trim = (STRING s) STRING:
    trim_leading( trim_trailing(s) )
 );
 
-# Remove all white space from a string. #
-PROC strip_blank = (STRING s) STRING:
-(
-   STRING return := "";
-   INT string_length := ELEMS s;
-   FOR i TO string_length
-   DO
-      (NOT is space(s[i]) | return +:= s[i])
-   OD;
-   done:
-   return
-);
-
 # Change the case of a string. #
 PROC string_to_lower = (STRING s) STRING:
 (
@@ -355,6 +352,24 @@ PROC despace = (STRING s) STRING:
    OD;
    return 
 );
+
+# Remove all white space from a string. Same as despace() currently. #
+PROC strip_blank = (STRING s) STRING:
+(
+   despace(s)
+);
+
+# Remove c characters from a string. #
+PROC strip_char = (STRING s, CHAR c) STRING:
+(
+   STRING return := "";
+   FOR i TO ELEMS s
+   DO
+      (c /= s[i] | return +:= s[i])
+   OD;
+   return 
+);
+
 
 # Check if a string is in a comma separated list of valid strings. #
 PROC check_valid = (STRING test, STRING valid) BOOL:
@@ -1022,7 +1037,7 @@ OP ARRAYCLOSESTINDEX = ([]REAL array, REAL value) INT:
    mindex
 );
 
-# Write a 2D REAL array to a file. Retuen FALSE on error. #
+# Write a 2D REAL array to a file. Return FALSE on error. #
 PROC write_2d_real_array = (STRING filename, [,]REAL array) BOOL:
 (
    BOOL retval := FALSE;
