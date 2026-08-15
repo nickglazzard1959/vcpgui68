@@ -1,6 +1,6 @@
 COMMENT
-dictionaries.a68 - Dictionaries (a.k.a maps, a.k.a associative arrays)
-======================================================================
+Dictionaries (a.k.a maps, a.k.a associative arrays)
+===================================================
 
 Because Algol 68 is strongly typed and doesn't have any meta-programming
 features, it's hard to see how to avoid having specific code for each value
@@ -15,7 +15,7 @@ At present, here are STRING keys with STRING and INT values. It would be
 easy (but repetitive) to add any other value types.
 
 We can use a single access operator (//) and test for a "key existing" operator
-(HASKEY) for ALL the dictionary "types", though, because we do have operator
+(HASKEY) for *all* the dictionary "types", though, because we do have operator
 overloading.
 
 NOTE: The dictionary code began with the associative array example for Algol 68 at
@@ -28,6 +28,8 @@ Currently lists of strings.
 Nick Glazzard 2026
 ------------------
 COMMENT
+
+PR read "utility.a68" PR
 
 # --------------------------------------- #
 # Simplest single linked list of strings. #
@@ -98,6 +100,11 @@ OP GET = (REF STRING_LIST list, INT i) STRING:
    retval
 );
 
+OP GET = (REF STRING_LIST_ELEMENT sle) REF STRING:
+(
+   value OF sle
+);
+
 # Return the contents of the list as an array of strings. #
 PROC string_list_as_array = (REF STRING_LIST list) []STRING:
 (
@@ -133,6 +140,18 @@ PROC string_list_print = (REF STRING_LIST list) VOID:
       cur := next OF cur
    OD;
    (line_length > 0 | print((newline)))
+);
+
+# Print each element of a string list. #
+PROC string_list_print_elements = (REF STRING_LIST list) VOID:
+(
+   INT line_length := 0;
+   REF STRING_LIST_ELEMENT cur := head OF list;
+   WHILE cur ISNT nil_sle
+   DO
+      print((value OF cur, new line));
+      cur := next OF cur
+   OD
 );
 
 # Return a reference to the first element of a list. Return nil_sle if empty. #
@@ -282,6 +301,96 @@ OP DEL = (REF STRING_LIST list, INT index) STRING:
    retval
 );
 
+# For a string list of lines, split each line to a set of words (separated by spaces). #
+PROC string_list_split_to_words = (REF STRING_LIST lines, REF STRING_LIST words) VOID:
+(
+   # Iterate over lines. #
+   REF STRING_LIST_ELEMENT line := FIRST lines;
+   WHILE line ISNT nil_sle
+   DO
+      STRING cur_line := trim(value OF line);
+      IF ELEMS cur_line = 0
+      THEN
+         words +:= "<EMPTY>"
+
+      # Line not all blank. Extract words. #
+      ELSE
+         INT n_chars := ELEMS cur_line;
+
+         # Step over the characters of a line. Because we have trimmed white space from #
+         # both ends of the line, we must begin and end in a word. #
+         BOOL in_word := TRUE;
+         STRING cur_word := "";
+         FOR i TO n_chars
+         DO
+            # Finding a space terminates the current word, if we are in one. #
+            IF is space(cur_line[i])
+            THEN
+               IF in_word
+               THEN
+                  words +:= cur_word;
+                  cur_word := "";
+                  in_word := FALSE
+               FI
+
+            # Not a space, so we are in a word. #
+            ELSE
+               in_word := TRUE
+            FI;
+
+            # If we are in a word, add the current character to the word. #
+            (in_word | cur_word +:= cur_line[i]);
+
+            # If this is the last character of the line, add the current word. #
+            (i = n_chars | words +:= cur_word )
+         OD
+      FI;
+      line := NEXT lines
+   OD
+);
+
+# For a string list of words, join a set of words to a set of lines, breaking at line_length chars. #
+PROC string_list_join_to_lines = (REF STRING_LIST words, REF STRING_LIST lines, INT line_length) VOID:
+(
+   # Start with an empty line. #
+   STRING output := "";
+   INT n_output := 0;
+
+   # Iterate over words. #
+   REF STRING_LIST_ELEMENT word := FIRST words;
+   WHILE word ISNT nil_sle
+   DO
+      # If word is <EMPTY> flush and add a blank line. #
+      IF (value OF word) = "<EMPTY>"
+      THEN
+         (n_output > 0 | 
+               lines +:= trim(output);
+               output := "";
+               n_output := 0
+         );
+         lines +:= ""
+
+      ELSE
+         # Append word with space at the end. #
+         output +:= (value OF word + " ");
+         n_output +:= (ELEMS (value OF word) + 1);
+
+         # Line length reached? If so, insert into output line list. #
+         (n_output >= line_length |
+               lines +:= trim(output);
+               output := "";
+               n_output := 0
+         )
+      FI;
+
+      word := NEXT words
+   OD;
+
+   # Add any partial line. #
+   (n_output > 0 | lines +:= trim(output))
+);
+
+
 # -------------------------- #
 # Dictionary hash functions. #
 # -------------------------- #
@@ -315,9 +424,9 @@ STRING_DICT_VALUE init element value = "";
 
 # Dictionary: hash table collision lists. #
 MODE STRING_DICT = STRUCT([0:hash modulus-1]REF STRING_DICT_LIST_NODE heads, # Hash table (list heads). #
-                          REF STRING_LIST keys_list,                               # In-order list of keys. #
-                          INT current_hash,                                        # Used for FIRST/NEXT. #
-                          REF STRING_DICT_LIST_NODE current_position            # Used for FIRST/NEXT. #
+                          REF STRING_LIST keys_list,                         # In-order list of keys. #
+                          INT current_hash,                                  # Used for FIRST/NEXT. #
+                          REF STRING_DICT_LIST_NODE current_position         # Used for FIRST/NEXT. #
                          ); 
 
 # Initialise a dictionary by setting all its collision lists to NIL. #
@@ -505,10 +614,10 @@ REF INT_DICT_KEYVAL nil int element = NIL; # NIL dictionary element reference. #
 INT_DICT_VALUE init int element value = -1; 
 
 # Dictionary: hash table collision lists. #
-MODE INT_DICT = STRUCT([0:hash modulus-1]REF INT_DICT_LIST_NODE heads,    # Hash table (list heads). #
-                       REF STRING_LIST keys_list,                               # In-order list of keys. #
-                       INT current_hash,                                        # Used for FIRST/NEXT. #
-                       REF INT_DICT_LIST_NODE current_position               # Used for FIRST/NEXT. #
+MODE INT_DICT = STRUCT([0:hash modulus-1]REF INT_DICT_LIST_NODE heads,  # Hash table (list heads). #
+                       REF STRING_LIST keys_list,                       # In-order list of keys. #
+                       INT current_hash,                                # Used for FIRST/NEXT. #
+                       REF INT_DICT_LIST_NODE current_position          # Used for FIRST/NEXT. #
                       ); 
 
 # Initialise a dictionary by setting all its collision lists to NIL. #
@@ -698,7 +807,7 @@ PROC permuted_integers = (INT n, INT seed) []INT:
 # TESTS. #
 # ------ #
 
-IF FALSE
+IF TRUE
 THEN
 
 # Test string dicts. #
@@ -900,5 +1009,35 @@ print(("Remaining items: ",ELEMS new_list,newline));
 
 # Test Fisher-Yates shuffle permutation. (Already used it, though!) #
 FLEX [1:0] INT rint := permuted_integers(6, 12345);
-print((rint,newline))
+print((rint,newline));
+
+# Test split line list to word list. #
+REF STRING_LIST line_list := STRING_LIST_INIT LOC STRING_LIST;
+line_list +:= "Because Algol 68 is strongly typed and doesn't have any meta-programming";
+line_list +:= "features, it's hard to see how to avoid having specific code for each value";
+line_list +:= "type. You could easily make a single dictionary type configurable by";
+line_list +:= "setting a few modes and values, but you can only have one dictionary type";
+line_list +:= "in a single program if you do that, AFAICS. You could try using UNIONs,";
+line_list +:= "but I'm not sure that doesn't lead to painful complications.";
+line_list +:= "";
+line_list +:= "Actually, a very simple macro processor could solve this problem ... ";
+line_list +:= "";
+line_list +:= "At present, here are STRING keys with STRING and INT values. It would be";
+line_list +:= "easy (but repetitive) to add any other value types.";
+
+REF STRING_LIST word_list := STRING_LIST_INIT LOC STRING_LIST;
+string_list_split_to_words(line_list, word_list);
+string_list_print_elements(word_list);
+
+REF STRING_LIST_ELEMENT word := FIRST word_list;
+WHILE word ISNT nil_sle
+DO
+   (all_upper(GET word) | GET word := "`" + GET word + "`");
+   word := NEXT word_list
+OD;
+
+REF STRING_LIST new_line_list := STRING_LIST_INIT LOC STRING_LIST;
+string_list_join_to_lines(word_list, new_line_list, 75);
+string_list_print_elements(new_line_list)
+
 FI;

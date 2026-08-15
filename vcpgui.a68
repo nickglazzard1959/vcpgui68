@@ -1910,7 +1910,7 @@ PROC instantiate_timedisplay = (PIPE p, REF TIMEDISPLAY td) VOID:
    pop_dstate
 );
 
-# Update state of the time display and redraw it,remembering to remove to old version. #
+# Update state of the time display and redraw it, remembering to remove to old version. #
 PROC update_timedisplay = (PIPE p, REF TIMEDISPLAY td, INT h, m, s) VOID:
 (
    INT digit_width, digit_height, colon_width, array_width, xc, yc, x1, y1, x2, y2;

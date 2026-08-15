@@ -405,6 +405,24 @@ PROC string_to_bool = (STRING s) BOOL:
    retval
 );
 
+# Check string only contains upper case letters. #
+PROC all_upper = (STRING s) BOOL:
+(
+   BOOL yes := (ELEMS s > 0);
+   FOR i TO ELEMS s DO (NOT is upper(s[i]) | (yes := FALSE; done)) OD;
+   done:
+   yes
+);
+
+# Check string only contains lower case letters. #
+PROC all_lower = (STRING s) BOOL:
+(
+   BOOL yes := (ELEMS s > 0);
+   FOR i TO ELEMS s DO (NOT is lower(s[i]) | (yes := FALSE; done)) OD;
+   done:
+   yes
+);
+
 # Check string only contains decimal digits. #
 PROC all_digits = (STRING s) BOOL:
 (

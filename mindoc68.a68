@@ -9,11 +9,13 @@ PR read "dictionaries.a68" PR
 PR read "arg_parser.a68" PR
 
 CHAR hash = REPR 35; # Hash - avoids Emacs A68 syntax hinting going mad. #
+STRING code_fence = 3 * "`"; 
+STRING rule = 3 * "-";
 
+# Format a formal declarations and return mode (procop) followed by #
+# a description of that PROC or OP. #
 PROC format_procop = (REF STRING_LIST comments, STRING procop, REF FILE fout) VOID:
 (
-   STRING code_fence = 3 * "`";
-   
    # Output the function definition. #
    put(fout, (new line, code_fence, new line,
               procop, new line,
@@ -29,19 +31,41 @@ PROC format_procop = (REF STRING_LIST comments, STRING procop, REF FILE fout) VO
    OD;
 
    # End with a horizontal rule. #
-   put(fout, (new line, "---", new line))
+   put(fout, (new line, rule, new line))
 );
 
+# Output a Markdown sub section heading. #
 PROC format_sub_section = (STRING section, REF FILE fout) VOID:
 (
    put(fout, (new line, hash, hash, " ", trim(strip_char(section, hash)), new line))
 );
 
+# Output a Markdown section heading. #
 PROC format_section = (STRING section, REF FILE fout) VOID:
 (
    put(fout, (new line, hash, " ", trim(strip_char(section, hash)), new line))
 );
 
+# Format introductory comments for the whole file. #
+PROC format_intro = (REF STRING_LIST intro, REF FILE fout) VOID:
+(
+   # Strip out strings that can be misinterpeted in Markdown. #
+   REF STRING_LIST_ELEMENT list_line := FIRST intro;
+   WHILE list_line ISNT nil_sle
+   DO
+      STRING output_line := trim(value OF list_line);
+      BOOL ignore1 := (ELEMS output_line > 3 | (output_line[:3] = "---" | TRUE | FALSE) | FALSE);
+      BOOL ignore2 := (ELEMS output_line > 3 | (output_line[:3] = "===" | TRUE | FALSE) | FALSE);
+      BOOL ignore := ignore1 OR ignore2;
+      (NOT ignore | put(fout, (output_line, new line)));
+      list_line := NEXT intro
+   OD;
+
+   # End with a horizontal rule. #
+   put(fout, (new line, rule, new line))
+);
+
+# Process a single source file. #
 PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
 (
    # Open the source file. #
@@ -55,26 +79,48 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
    format_section(source_file, fout);
 
    # Read the file. Identify PROC and OP specifically. #
+   # Also an initial COMMENT block as an introduction. #
    BOOL eof := FALSE;
    PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
    STRING input_line;
    on file end(fin, at_eof);
 
-   # Keep accumulated description lines on a string list. #
+   # Keep accumulated PROC/OP description lines on a string list. #
    REF STRING_LIST accum := STRING_LIST_INIT LOC STRING_LIST;
+
+   # Keep accumulated top comment material on a string list too. #
+   REF STRING_LIST intro := STRING_LIST_INIT LOC STRING_LIST;  
 
    # Loop over all lines in the file. #
    BOOL last_empty := TRUE;
    BOOL last_comment := FALSE;
    BOOL multi_procop := FALSE;
+   BOOL top_comment := FALSE;
    STRING multi_procop_def := "";
+   INT line_no := 0;
+   INT loc_no := 0;
+   INT proc_no := 0;
+   INT op_no := 0;
    DO
       get(fin, (input_line, new line)); (eof | file_end);
+      line_no +:= 1;
       input_line := trim(input_line); # Remove leading and trailing white space. #
+      BOOL empty := (ELEMS input_line = 0);
+      (NOT empty AND line_no = 1 AND input_line = "COMMENT" | top_comment := TRUE);
+      (NOT empty | (input_line[1] /= hash AND NOT top_comment | loc_no +:= 1));
 
-      # First deal with multi-line PROC or OP definition accumulation. #
+      # First, deal with any top comment block. Use for introductory material. #
+      IF top_comment
+      THEN
+         (line_no /= 1 AND input_line = "COMMENT" |
+               format_intro(intro, fout);
+               top_comment := FALSE |
+                  (line_no /= 1 | intro +:= input_line)
+         )
+
+      # Next, deal with multi-line PROC or OP definition accumulation. #
       # Do nothing else until this is complete. #
-      IF multi_procop
+      ELIF multi_procop
       THEN
          multi_procop_def +:= (" " + input_line);
          (ends_with(input_line, ":") |
@@ -85,8 +131,9 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
       ELSE
 
          # Classify the line. #
-         BOOL empty := (ELEMS input_line = 0);
-         BOOL procop := begins_with(input_line, "PROC") OR begins_with(input_line, "OP");
+         BOOL is_proc := begins_with(input_line, "PROC");
+         BOOL is_op := begins_with(input_line, "OP");
+         BOOL procop := is_proc OR is_op;
          BOOL comment := (empty | FALSE | input_line[1] = hash);
 
          # Transition from blank to comment. Start new accumulation. #
@@ -119,8 +166,10 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
                   VOID(CLEAR accum) |
                      multi_procop_def := input_line
             );
+            (is_proc | proc_no +:= 1);
+            (is_op | op_no +:= 1)
 
-         # Continuing a comment block after first line. #
+         # Continuing a comment block after first line of description. #
          ELIF last_comment AND comment
          THEN
             accum +:= input_line
@@ -132,6 +181,11 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
    OD;
 
    file_end:
+   format_sub_section("Statistics", fout);
+   put(fout, ("PROC declarations: ", wint(proc_no), "\", new line));
+   put(fout, ("  OP declarations: ", wint(op_no), "\", new line));
+   put(fout, ("      Total lines: ", wint(line_no), "\", new line));
+   put(fout, ("    Lines of code: ", wint(loc_no), "\", new line));
    close(fin)
 );
 
