@@ -2,6 +2,23 @@ COMMENT
 mindoc68.a68 - Very (very) minimal documentation extraction program for a68 code.
 =================================================================================
 
+This makes a *lot* of assumptions about how the code is formatted, but it is still
+useful, at least for the VCPGUI project code.
+
+It is *assumed* that:
+
+1. The purpose of the file is described in a <long comment> to <long comment? block starting in line 1.
+2. The purpose and how to use a PROC or OP is described by comment lines with *hashes*
+   immediately *before* the PROC or OP definition. No blank line before the PROC/OP.
+   No blank lines in the description comments.
+3. Sections of related functions in the code begin with a single line hash comment followed
+   and preceded by # --- # or # === # lines (spaces and number of -/= do not matter). These
+   comments are used to create sub-sections in Markdown.
+
+I toyed with automatic detection of items that should be treated as code and so on,
+but it didn't work very well ... It is probably best to just use minimal Markdown in comments
+if desired. That should be safe. There are too many exceptions and oddities for simple
+automatic schemes to work, it seems.
 COMMENT
 
 PR read "utility.a68" PR
@@ -9,8 +26,57 @@ PR read "dictionaries.a68" PR
 PR read "arg_parser.a68" PR
 
 CHAR hash = REPR 35; # Hash - avoids Emacs A68 syntax hinting going mad. #
+STRING hash_string = STRING(hash);
 STRING code_fence = 3 * "`"; 
 STRING rule = 3 * "-";
+
+# Format a formal declarations and return mode (procop) followed by #
+# a description of that PROC or OP. This version tries to automatically identify #
+# items that should be in 'code' fomat. Sadly this doesn't work very well! #
+PROC format_procop_fancy = (REF STRING_LIST comments, STRING procop, REF FILE fout) VOID:
+(
+   # Output the function definition. #
+   put(fout, (new line, code_fence, new line,
+              procop, new line,
+              code_fence, new line));
+
+   # Get the formal parameter names from the function defn. Crudely ... #
+   REF STRING_LIST arg_list := STRING_LIST_INIT LOC STRING_LIST;
+   get_arg_list(procop, arg_list);
+   CO string_list_print_elements(arg_list); CO
+   CO print(("---", new line)); CO
+
+   # Split the descriptive comments lines into space separated words. #
+   REF STRING_LIST comments_words_list := STRING_LIST_INIT LOC STRING_LIST;
+   string_list_split_to_words(comments, comments_words_list);
+
+   # Process each word. Put code markup on every all UPPER case word and any word #
+   # that is found in the arguments list. #
+   REF STRING_LIST_ELEMENT word := FIRST comments_words_list;
+   WHILE word ISNT nil_sle
+   DO
+      (GET word = hash_string | GET word := "");
+      (all_upper(GET word) | GET word := "`" + GET word + "`");
+      (arg_list HASELEM (GET word) | GET word := "`" + GET word + "`");
+      word := NEXT comments_words_list
+   OD;
+
+   # Reassemble the words into lines. #
+   REF STRING_LIST comments_lines_list := STRING_LIST_INIT LOC STRING_LIST;
+   string_list_join_to_lines(comments_words_list, comments_lines_list, 72);
+
+   # Output the final comments describing the function. #
+   REF STRING_LIST_ELEMENT list_line := FIRST comments_lines_list;
+   WHILE list_line ISNT nil_sle
+   DO
+      REF STRING output_line := GET list_line;
+      put(fout, (output_line, new line));
+      list_line := NEXT comments_lines_list
+   OD;
+
+   # End with a horizontal rule. #
+   put(fout, (new line, rule, new line))
+);
 
 # Format a formal declarations and return mode (procop) followed by #
 # a description of that PROC or OP. #
@@ -32,6 +98,37 @@ PROC format_procop = (REF STRING_LIST comments, STRING procop, REF FILE fout) VO
 
    # End with a horizontal rule. #
    put(fout, (new line, rule, new line))
+);
+
+# Try to extract formal argument names from a PROC or OP declaration string. #
+PROC get_arg_list = (STRING procop, REF STRING_LIST args) VOID:
+(
+   # Find a (. If none, do nothing. #
+   INT spar, epar;
+   IF char in string("(", spar, procop)
+   THEN
+
+      # Get the string between parentheses. #
+      (NOT char in string(")", epar, procop) |
+            put(stand error, ("Arg list, ( without matching ), ugh!", new line));
+            done);
+      STRING arg_string := procop[spar+1:epar-1];
+      (arg_string = "" |
+            put(stand error, ("Empty arg list, ugh!", new line));
+            done);
+
+      # Extract lower case words and assume they are format argument names. #
+      STRING arg_string_no_commas := strip_char(arg_string, ",");
+      FLEX [1:0] STRING args_split := split_string(arg_string_no_commas, " ");
+      CO print(("> ",procop,new line)); CO
+      FOR i TO ELEMS args_split
+      DO
+         (all_lower(args_split[i]) | args +:= args_split[i])
+      OD
+   FI;
+
+   done:
+   SKIP
 );
 
 # Output a Markdown sub section heading. #
@@ -133,7 +230,8 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
          # Classify the line. #
          BOOL is_proc := begins_with(input_line, "PROC");
          BOOL is_op := begins_with(input_line, "OP");
-         BOOL procop := is_proc OR is_op;
+         BOOL is_prio := begins_with(input_line, "PRIO");
+         BOOL procop := is_proc OR is_op OR is_prio;
          BOOL comment := (empty | FALSE | input_line[1] = hash);
 
          # Transition from blank to comment. Start new accumulation. #

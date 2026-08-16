@@ -414,11 +414,11 @@ PROC all_upper = (STRING s) BOOL:
    yes
 );
 
-# Check string only contains lower case letters. #
+# Check string only contains lower case letters. Allow underscores too. #
 PROC all_lower = (STRING s) BOOL:
 (
    BOOL yes := (ELEMS s > 0);
-   FOR i TO ELEMS s DO (NOT is lower(s[i]) | (yes := FALSE; done)) OD;
+   FOR i TO ELEMS s DO (NOT (is lower(s[i]) OR (s[i] = "_")) | (yes := FALSE; done)) OD;
    done:
    yes
 );
@@ -557,7 +557,7 @@ PROC si_string_to_real = (STRING s, REF REAL v, REF STRING units) BOOL:
 # Convert a real number to a scaled real number with an appropriate SI prefix. #
 # If do_small is TRUE, use hecto, deca, deci and centi otherwise use only 10**3n prefixes. #
 # This is quite hard to get right, and I'm not certain I have in all cases! #
-# --- #
+# #
 # This variant uses u for micro prefix and is suitable for all output (command line, etc.). #
 PROC real_to_si_real = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small) BOOL:
 (
@@ -570,7 +570,7 @@ PROC real_to_si_real_dsurf = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do
    real_to_si_real_internal(v, v_out, prefix, do_small, TRUE)
 );
 
-# Do all the work. #
+# Do all the work of real_to_si_real() and real_to_si_real_dsurf(). #
 PROC real_to_si_real_internal = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small, BOOL do_mu) BOOL:
 (
    BOOL retval := FALSE;
@@ -659,12 +659,14 @@ PROC real_to_si_real_scaled = (REAL v, REF INT iv_out, INT n_digits,
    real_to_si_real_scaled_internal(v, iv_out, n_digits, prefix, dp, do_small, FALSE) 
 );
 
+# Variant of real_to_si_real_scaled() for DSURF to display Greek mu for micro. #
 PROC real_to_si_real_scaled_dsurf = (REAL v, REF INT iv_out, INT n_digits, 
                                      REF STRING prefix, REF INT dp, BOOL do_small) BOOL:
 (
    real_to_si_real_scaled_internal(v, iv_out, n_digits, prefix, dp, do_small, TRUE)
 );
 
+# Handle most of both real_to_si_real_scaled() and real_to_si_real_scaled_dsurf(). #
 PROC real_to_si_real_scaled_internal = (REAL v, REF INT iv_out, INT n_digits, 
                                         REF STRING prefix, REF INT dp, BOOL do_small, BOOL do_mu) BOOL:
 (
@@ -933,6 +935,73 @@ PROC open_chardev = (STRING devname, STRING mode, REF FILE fio) INT:
    ret_error
 );
 
+# Mode for a pair of strings. Very useful for file paths and file names. #
+MODE STRINGPAIR = STRUCT(STRING first, STRING last);
+
+# Split a path name into a path and an extension. #
+# Intended to work as per Python splitext. #
+PROC splitext = (STRING pathname) STRINGPAIR:
+(
+   INT dotpos, slashpos;
+   STRINGPAIR result := ("", "");
+
+   (pathname = "" | done);
+
+   IF last char in string(".", dotpos, pathname)
+   THEN
+      (dotpos > 1 | first OF result := pathname[:dotpos-1]);
+      (first OF result = "" | first OF result := pathname[dotpos:] |
+            last OF result := pathname[dotpos:]);
+
+      # Try to handle pathological cases like a/b....jpg #
+      # This mimics Python, although I'm not certain that is always desirable for this case. #
+      (last char in string("/", slashpos, pathname) | slashpos +:= 1 | slashpos := 1);
+      slashpos := clamp_int(slashpos, 1, ELEMS pathname);
+      BOOL multidot := count_char_occurrences(".", pathname[slashpos:]) > 1;
+      (multidot | first OF result := pathname; last OF result := "")
+   ELSE
+      first OF result := pathname
+   FI;
+
+   done:
+   result
+);
+
+# Split a pathname into a pair by cleaving off what is after the last / (if any). #
+# Leave a trailing / on the first part of the split string.   #
+PROC splitpath = (STRING pathname) STRINGPAIR:
+(
+   INT slashpos;
+   STRINGPAIR result := ("", "");
+   INT n := ELEMS pathname;
+
+   (pathname = "" | done);
+
+   IF last char in string("/", slashpos, pathname)
+   THEN
+      (slashpos < n | 
+            first OF result := pathname[:slashpos];
+            last OF result := pathname[slashpos+1:] |
+               first OF result := pathname)
+   ELSE
+      first OF result := pathname
+   FI;
+
+   done:
+   result   
+);
+
+# Join a string pair into a string. #
+PROC joinpair = (STRINGPAIR pair) STRING:
+(
+   (first OF pair) + (last OF pair)
+);
+
+# Print a string pair. #
+PROC print_string_pair = (STRINGPAIR p) VOID:
+(
+   print(("[",first OF p,"][",last OF p,"]",new line))
+);
 
 # ----------- #
 # Array aids. #
@@ -1142,7 +1211,7 @@ PROC ieb = (BOOL status) VOID:
 # TESTS. #
 # ------ #
 
-IF FALSE
+IF TRUE
 THEN
 
 PROC stortst = (STRING s) VOID:
@@ -1355,6 +1424,73 @@ FOR i TO 30
 DO
    rtosistst4(next random * test_val);
    test_val /:= 10
-OD
+OD;
+
+STRING path := "/a/full/path/thing.ext"; print((path," ---> "));
+STRINGPAIR pair := splitpath(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "partial/path/thing.ext"; print((path," ---> "));
+pair := splitpath(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "partial/path/thing"; print((path," ---> "));
+pair := splitpath(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "thing.ext"; print((path," ---> "));
+pair := splitpath(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "partial/path/"; print((path," ---> "));
+pair := splitpath(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "/"; print((path," ---> "));
+pair := splitpath(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := ""; print((path," ---> "));
+pair := splitpath(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+
+path := "partial/path/thing.ext"; print((path," ---> "));
+pair := splitext(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "thing.ext"; print((path," ---> "));
+pair := splitext(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "thing."; print((path," ---> "));
+pair := splitext(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := ".ext"; print((path," ---> "));
+pair := splitext(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := ""; print((path," ---> "));
+pair := splitext(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
+path := "/foo/....jpg"; print((path," ---> "));
+pair := splitext(path); print_string_pair(pair); print((path," ---> "));
+print((joinpair(pair), new line));
+print(("----", new line));
+
 
 FI;

@@ -100,6 +100,7 @@ OP GET = (REF STRING_LIST list, INT i) STRING:
    retval
 );
 
+# Get a reference to a string list element value. This can be used to get and set that value. #
 OP GET = (REF STRING_LIST_ELEMENT sle) REF STRING:
 (
    value OF sle
@@ -807,7 +808,7 @@ PROC permuted_integers = (INT n, INT seed) []INT:
 # TESTS. #
 # ------ #
 
-IF TRUE
+IF FALSE
 THEN
 
 # Test string dicts. #
