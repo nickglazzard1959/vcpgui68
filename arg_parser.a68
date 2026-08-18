@@ -31,6 +31,7 @@ arg_get_positional_n().
 See the TESTS section at the bottom of the file for a usage example.
 
 Some test cases, for example:
+```
   a68g arg_parser.a68                          # OK #
   a68g arg_parser.a68 -- -h                    # OK #
   a68g arg_parser.a68 -- -f -t Yikes           # OK #
@@ -47,6 +48,7 @@ Some test cases, for example:
   a68g arg_parser.a68 -- "Hello Kitty!"        # OK, positionals only allowed. #
   a68g arg_parser.a68 -- -f -t Yikes "Hello Kitty!" -i +78 *.a68 # OK. Signed positive integers allowed. #
   a68g arg_parser.a68 -- -f -t Yikes "Hello Kitty!" -i -78 "*.a68" -r -1.5e7  # OK. All real number fmts should work. #
+```
 
 Nick Glazzard 2026.
 -------------------

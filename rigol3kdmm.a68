@@ -12,6 +12,7 @@ seems very similar, so it might be easy to adapt this to work with Agilent
 devices. The Fluke set seems quite different, though.
 
 There are two "issues" which are not readily soluble:
+
 1. Opening the device quite often fails with "protocol error". This can be
    worked round by unplugging and replugging the device. This happens with
    a C++ test program too. This *may* be something specific to how Rigol

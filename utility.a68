@@ -1003,6 +1003,39 @@ PROC print_string_pair = (STRINGPAIR p) VOID:
    print(("[",first OF p,"][",last OF p,"]",new line))
 );
 
+# Copy the contents of an entire file to an open output file. Optionally trim white space. #
+PROC copy_file_contents = (STRING filename, REF FILE fout, BOOL trimspaces) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # Open the input file. #
+   FILE fin;
+   INT status := open_file(filename, "r", fin);
+   (status /= 0 |
+         print_os_error("copy_file_contents(): Cannot open source file", status); 
+         done);
+
+   # Read the file in units of newline terminated lines. #
+   BOOL eof := FALSE;
+   PROC at_eof = (REF FILE afin) BOOL: ( eof := TRUE );
+   STRING input_line;
+   on file end(fin, at_eof);
+
+   DO
+      get(fin, (input_line, new line)); (eof | file_end);
+      (trimspaces | input_line := trim(input_line));
+      put(fout, (input_line, new line))
+   OD;
+
+   # Read success. Close input. #
+   file_end:
+   close(fin);
+   retval := TRUE;
+
+   done:
+   retval
+);
+
 # ----------- #
 # Array aids. #
 # ----------- #
@@ -1211,7 +1244,7 @@ PROC ieb = (BOOL status) VOID:
 # TESTS. #
 # ------ #
 
-IF TRUE
+IF FALSE
 THEN
 
 PROC stortst = (STRING s) VOID:
@@ -1490,7 +1523,7 @@ print(("----", new line));
 path := "/foo/....jpg"; print((path," ---> "));
 pair := splitext(path); print_string_pair(pair); print((path," ---> "));
 print((joinpair(pair), new line));
-print(("----", new line));
+print(("----", new line))
 
 
 FI;

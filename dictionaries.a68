@@ -202,6 +202,7 @@ OP CLEAR = (REF STRING_LIST list) INT:
 (
    INT retval := n_elems OF list;
    head OF list := tail OF list := nil_sle;
+   n_elems OF list := 0;
    retval
 );
 
@@ -303,6 +304,7 @@ OP DEL = (REF STRING_LIST list, INT index) STRING:
 );
 
 # For a string list of lines, split each line to a set of words (separated by spaces). #
+# This preserves blank lines by marking them with a specific 'marker word': <EMPTY>. #
 PROC string_list_split_to_words = (REF STRING_LIST lines, REF STRING_LIST words) VOID:
 (
    # Iterate over lines. #
@@ -351,6 +353,7 @@ PROC string_list_split_to_words = (REF STRING_LIST lines, REF STRING_LIST words)
 );
 
 # For a string list of words, join a set of words to a set of lines, breaking at line_length chars. #
+# This preserves the original blank lines.  #
 PROC string_list_join_to_lines = (REF STRING_LIST words, REF STRING_LIST lines, INT line_length) VOID:
 (
    # Start with an empty line. #
@@ -389,6 +392,23 @@ PROC string_list_join_to_lines = (REF STRING_LIST words, REF STRING_LIST lines, 
 
    # Add any partial line. #
    (n_output > 0 | lines +:= trim(output))
+);
+
+# Split a string on newline characters into a string list. #
+PROC string_lines_to_string_list = (STRING lines, REF STRING_LIST list) VOID:
+(
+   INT start_pos := 1;
+   INT end_pos;
+   CHAR nl = REPR 10;
+   
+   STRING curstr := lines;
+   WHILE char in string(nl, end_pos, curstr)
+   DO
+      list +:= curstr[start_pos:end_pos-1];
+      curstr := curstr[end_pos+1:]
+   OD;
+
+   (curstr /= "" | list +:= curstr)
 );
 
 

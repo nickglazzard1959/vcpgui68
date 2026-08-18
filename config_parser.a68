@@ -6,21 +6,21 @@ This basically parses a sub-set of TOML (probably), but compatibility beyond bas
 A full TOML parser should cope with the things this parser can deal with, though.
 
 Example of usage:
-
+```
 REF CONFIG_PARSE cp := make_config_parser("test.ini");
 IF NOT parse_config_file(cp)
 THEN
    put(stand error, ("Failed to parse config file. Giving up.", newline));
    stop
 FI;
-                                              Key    Default
-                                               |        |
+
 STRING again := config_get_string_value(cp, "again", "nuts"); # Basic string #
 STRING a := config_get_string_value(cp, "a", "nuts");  # Type error here, a is an INT in test.ini #
 INT anint := config_get_int_value(cp, "anint", -1234); # Integer #
 REAL afloat := config_get_real_value(cp, "afloat", 2.718); # Float/Real #
 STRING ml := config_get_string_value(cp, "tablea1.ml", "coffee"); # Multi-line string #
 FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2)); # 1D array of REALs #
+```
 
 Beyond the straightforward use of getting settings from a configuration file, the key-value pairs can
 be grouped into 'tables' and those tables can be used pretty much as separate 'dictionaries' or

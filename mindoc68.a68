@@ -7,7 +7,7 @@ useful, at least for the VCPGUI project code.
 
 It is *assumed* that:
 
-1. The purpose of the file is described in a <long comment> to <long comment? block starting in line 1.
+1. The purpose of the file is described in a <long comment> to <long comment> block starting in line 1.
 2. The purpose and how to use a PROC or OP is described by comment lines with *hashes*
    immediately *before* the PROC or OP definition. No blank line before the PROC/OP.
    No blank lines in the description comments.
@@ -16,7 +16,7 @@ It is *assumed* that:
    comments are used to create sub-sections in Markdown.
 
 I toyed with automatic detection of items that should be treated as code and so on,
-but it didn't work very well ... It is probably best to just use minimal Markdown in comments
+but it didn't work very well ... It is probably best to just use Markdown in comments
 if desired. That should be safe. There are too many exceptions and oddities for simple
 automatic schemes to work, it seems.
 COMMENT
@@ -24,59 +24,18 @@ COMMENT
 PR read "utility.a68" PR
 PR read "dictionaries.a68" PR
 PR read "arg_parser.a68" PR
+PR read "config_parser.a68" PR
 
 CHAR hash = REPR 35; # Hash - avoids Emacs A68 syntax hinting going mad. #
 STRING hash_string = STRING(hash);
 STRING code_fence = 3 * "`"; 
 STRING rule = 3 * "-";
 
-# Format a formal declarations and return mode (procop) followed by #
-# a description of that PROC or OP. This version tries to automatically identify #
-# items that should be in 'code' fomat. Sadly this doesn't work very well! #
-PROC format_procop_fancy = (REF STRING_LIST comments, STRING procop, REF FILE fout) VOID:
-(
-   # Output the function definition. #
-   put(fout, (new line, code_fence, new line,
-              procop, new line,
-              code_fence, new line));
-
-   # Get the formal parameter names from the function defn. Crudely ... #
-   REF STRING_LIST arg_list := STRING_LIST_INIT LOC STRING_LIST;
-   get_arg_list(procop, arg_list);
-   CO string_list_print_elements(arg_list); CO
-   CO print(("---", new line)); CO
-
-   # Split the descriptive comments lines into space separated words. #
-   REF STRING_LIST comments_words_list := STRING_LIST_INIT LOC STRING_LIST;
-   string_list_split_to_words(comments, comments_words_list);
-
-   # Process each word. Put code markup on every all UPPER case word and any word #
-   # that is found in the arguments list. #
-   REF STRING_LIST_ELEMENT word := FIRST comments_words_list;
-   WHILE word ISNT nil_sle
-   DO
-      (GET word = hash_string | GET word := "");
-      (all_upper(GET word) | GET word := "`" + GET word + "`");
-      (arg_list HASELEM (GET word) | GET word := "`" + GET word + "`");
-      word := NEXT comments_words_list
-   OD;
-
-   # Reassemble the words into lines. #
-   REF STRING_LIST comments_lines_list := STRING_LIST_INIT LOC STRING_LIST;
-   string_list_join_to_lines(comments_words_list, comments_lines_list, 72);
-
-   # Output the final comments describing the function. #
-   REF STRING_LIST_ELEMENT list_line := FIRST comments_lines_list;
-   WHILE list_line ISNT nil_sle
-   DO
-      REF STRING output_line := GET list_line;
-      put(fout, (output_line, new line));
-      list_line := NEXT comments_lines_list
-   OD;
-
-   # End with a horizontal rule. #
-   put(fout, (new line, rule, new line))
-);
+# Globals to hold total of lines and lines of code statistics. #
+INT global_lines := 0;
+INT global_loc := 0;
+INT global_procs := 0;
+INT global_ops := 0;
 
 # Format a formal declarations and return mode (procop) followed by #
 # a description of that PROC or OP. #
@@ -98,37 +57,6 @@ PROC format_procop = (REF STRING_LIST comments, STRING procop, REF FILE fout) VO
 
    # End with a horizontal rule. #
    put(fout, (new line, rule, new line))
-);
-
-# Try to extract formal argument names from a PROC or OP declaration string. #
-PROC get_arg_list = (STRING procop, REF STRING_LIST args) VOID:
-(
-   # Find a (. If none, do nothing. #
-   INT spar, epar;
-   IF char in string("(", spar, procop)
-   THEN
-
-      # Get the string between parentheses. #
-      (NOT char in string(")", epar, procop) |
-            put(stand error, ("Arg list, ( without matching ), ugh!", new line));
-            done);
-      STRING arg_string := procop[spar+1:epar-1];
-      (arg_string = "" |
-            put(stand error, ("Empty arg list, ugh!", new line));
-            done);
-
-      # Extract lower case words and assume they are format argument names. #
-      STRING arg_string_no_commas := strip_char(arg_string, ",");
-      FLEX [1:0] STRING args_split := split_string(arg_string_no_commas, " ");
-      CO print(("> ",procop,new line)); CO
-      FOR i TO ELEMS args_split
-      DO
-         (all_lower(args_split[i]) | args +:= args_split[i])
-      OD
-   FI;
-
-   done:
-   SKIP
 );
 
 # Output a Markdown sub section heading. #
@@ -246,9 +174,9 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
             STRING last_comment_string := strip_blank( POP accum );
             BOOL section := begins_with(last_comment_string, "#---") OR 
                             begins_with(last_comment_string, "#===");
-            (section | 
+            (section |
                   STRING section_string := POP accum;
-                  (NOT string in string("TEST", NIL, section_string) |
+                  ((ELEMS accum > 0) AND (NOT string in string("TEST", NIL, section_string)) |
                         format_sub_section(section_string, fout))
             );
             VOID(CLEAR accum)
@@ -284,6 +212,13 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
    put(fout, ("  OP declarations: ", wint(op_no), "\", new line));
    put(fout, ("      Total lines: ", wint(line_no), "\", new line));
    put(fout, ("    Lines of code: ", wint(loc_no), "\", new line));
+
+   # Sum global statistics. #
+   global_lines +:= line_no;
+   global_loc +:= loc_no;
+   global_procs +:= proc_no;
+   global_ops +:= op_no;
+
    close(fin)
 );
 
@@ -293,8 +228,14 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
 
 print_std_title("Minimal Documentation Extraction Program V0.1");
 
-# Parse command line arguments. These MUST appear after --. #
+# Define, get and parse command line arguments. These MUST appear after --. #
 REF ARG_PARSE arg_parser := make_arg_parser("Minimal Documentation Extraction Program");
+arg_set_description(arg_parser,
+"This is a simple program that extracts descriptive comments for PROCs and OPs\n\
+from Algol 68 programs in files with .a68 extensions. A set of input files for\n\
+a project can be specified in a .ini configuration file, or a single file can\n\
+be supplied. The output is always Markdown, with either HTML or PDF as an additional\n\
+output. The latter formats require that Pandoc is installed, and also LaTeX for PDF.");
 ( NOT parse_args(arg_parser) |
       put(stand error, ("Unknown or malformed command line arguments.", new line)); 
       stop );
@@ -309,15 +250,76 @@ STRING output_file := arg_get_positional_n(arg_parser, 2);
 print(("Source file: ", source_file, new line));
 print(("Output file: ", output_file, new line));
 
-# Create the output file. #
+# Look at the extension on the output file to determine waht might be generated. #
+# In all cases, Markdown in <output_file>.md will be output. If the output file  #
+# has the extension .html or .pdf, those formats are generated from the Markdown #
+# Pandoc (which must be installed for this, of course). #
+STRINGPAIR output_stem_ext := splitext(output_file);
+
+# If the source file has .ini extension, it should be a config file. Read it for file names. #
+# The files to be processed should then be defined by a multi-line string with key 'files'. #
+# Otherwise, we'll only process a single input file. #
+FLEX [1:0]STRING source_files;
+STRINGPAIR source_stem_ext := splitext(source_file);
+IF last OF source_stem_ext = ".ini"
+THEN
+   REF CONFIG_PARSE cp := make_config_parser(source_file);
+   IF NOT parse_config_file(cp)
+   THEN
+      put(stand error, ("Failed to parse config file [", source_file, "]. Giving up.", new line));
+      stop
+   ELSE
+      STRING files := config_get_string_value(cp, "files", "");
+      (files = "" | put(stand error, ("Invalid config file, giving up.", new line)); stop);
+      REF STRING_LIST files_list := STRING_LIST_INIT LOC STRING_LIST;
+      string_lines_to_string_list(files, files_list);
+      source_files := string_list_as_array(files_list)
+   FI
+ELSE
+   source_files := (source_file)
+FI;
+
+# Create the output file. Always Markdown at this point. #
 FILE fout;
-INT status := open_file(output_file, "w", fout);
+INT status := open_file(first OF output_stem_ext + ".md", "w", fout);
 ( status /= 0 |
       print_os_error("Cannot create output file", status); 
       stop);
 
-# Process the source file.  #
-process_source_file(source_file, fout);
+# Process the source files. #
+FOR i TO ELEMS source_files
+DO
+   print(("Reading: ", source_files[i], new line));
+   STRINGPAIR this_source_stem_ext := splitext(source_files[i]);
+   IF last OF this_source_stem_ext = ".a68"
+   THEN
+      process_source_file(source_files[i], fout)
+   ELSE
+      (NOT copy_file_contents(source_files[i], fout, FALSE) |
+            put(stand error, ("... Failed to read: ", source_files[i], new line)))
+   FI
+OD;
 
 # Close the output file. #
-close(fout)
+close(fout);
+put(stand out, ("Wrote: ", first OF output_stem_ext + ".md", new line));
+
+# Optionally post-process the generated Markdown to other formats with Pandoc. #
+BOOL post_process := (last OF output_stem_ext = ".pdf") OR 
+                     (last OF output_stem_ext = ".html");
+IF post_process
+THEN
+   STRING cmd_output;
+   STRING cmd := "pandoc -s --toc -N " + first OF output_stem_ext + ".md -o " + output_file +
+   " --pdf-engine=/usr/bin/pdflatex";
+   (run_command_get_output(cmd, cmd_output) |
+         put(stand out, ("Wrote: ", output_file, new line)) |
+            put(stand error, ("Failed to run Pandoc: ", cmd_output, new line)))
+FI;
+
+put(stand out, ("---------------------------------------------", new line));
+put(stand out, ("  Global PROC declarations: ", wint(global_procs), new line));
+put(stand out, ("    Global OP declarations: ", wint(global_ops), new line));
+put(stand out, ("        Global total lines: ", wint(global_lines), new line));
+put(stand out, ("Global total lines of code: ", wint(global_loc), new line));
+put(stand out, ("---------------------------------------------", new line))
