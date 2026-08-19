@@ -73,12 +73,33 @@ PROC lab_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 
 print_std_title("Simple Clock. V0.1");
 
+# Define, get and parse command line arguments. These MUST appear after --. #
+REF ARG_PARSE arg_parser := make_arg_parser("Simple Clock Program");
+arg_set_description(arg_parser,
+"This is a simple clock display program that shows some of the features\n\
+of the VCPGUI project. It can display the local time, UTC time, or the time\n\
+at one of a three cities. These can be defined in `clock-cities.ini`, along\n\
+with UTC time offsets. No attempt is made to use system timezone and DST data\n\
+as that would take too much effort from Algol 68!");
+REF BOOL ontop := arg_add_flag(arg_parser, "-o", "--ontop",
+                               "Keep DSURF window on top.",
+                               FALSE);
+REF BOOL nodecor := arg_add_flag(arg_parser, "-n", "--noborder",
+                                 "Turn off window border for DSURF.",
+                                 FALSE);
+( NOT parse_args(arg_parser) |
+      put(stand error, ("Unknown or malformed command line arguments.", new line)); 
+      stop );
+
 # Parse the configuration file. #
 REF CONFIG_PARSE cp := make_config_parser("clock-cities.ini");
-(NOT parse_config_file(cp) | put(stand error, ("Failed to parse config file. Giving up.", newline));
-                             stop);
-(NOT config_has_table(cp, "cities") | put(stand error, ("Expected cities table in config file. Giving up.", newline));
-                                      stop);
+(NOT parse_config_file(cp) | 
+      put(stand error, ("Failed to parse config file. Giving up.", newline));
+      stop);
+(NOT config_has_table(cp, "cities") | 
+      put(stand error, ("Expected cities table in config file. Giving up.", newline));
+      stop);
+
 STRING cities_list := "";
 FLEX [1:0] STRING city_names := config_get_keys_in_table(cp, "cities", TRUE);
 FOR i TO min2int(3, ELEMS city_names)
@@ -95,11 +116,14 @@ THEN
    OD
 FI;
 
+# Update display only when show_display commands are sent. Reduces 'flashing' on time updates. #
 BOOL immediate_update := config_get_bool_value(cp, "immediate-update", FALSE);
  
 # Open and configure the GUI display surface. #
 INT width := 386, height := 130;
-ds_set_fast_update(immediate_update);
+ds_config_set_fast_update(immediate_update);
+ds_config_set_on_top(ontop);
+ds_config_set_no_border(nodecor);
 PIPE gui := open_gui("Clock", width, height);
 
 # Get current local time. #

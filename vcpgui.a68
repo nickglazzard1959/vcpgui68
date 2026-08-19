@@ -1,6 +1,117 @@
 COMMENT
-vcpgui.a68 - A somewhat specialised GUI for controlling some instruments.
-=========================================================================
+A somewhat specialised GUI for controlling some instruments.
+============================================================
+
+This was developed because of a desire to control a homemade function
+generator using a GUI ... but a GUI that looks like a traditional physical
+control panel, at least to some extent.
+
+Other motivations were that I had wanted to do something with Algol 68 Genie
+since the nought-ies (not long after it was first released) and I had some
+decent pictures of Nixie tube digits taken from my HP 3430A voltmeter with
+a Fujifilm S7000 camera long ago. So ...
+
+Another motivation was to see how much code was really needed for a viable
+(albeit limited) GUI? Most GUI toolkits are huge (one exception may be GuiLite).
+I have used Qt quite a bit and it is very capable ... but also very heavy.
+Can something much lighter be useful? (The answer seems to be yes).
+
+To have a GUI, some means of drawing graphical elements is obviously needed,
+as well as a way of sensing mouse clicks (and other forms of input) in
+relation to the drawn graphical elements. For appearance sake and flexibility,
+the best way of drawing most elements is using texture mapped rectangles.
+The basis for such a capability is SDL (Simple DirectMedia Layer). This provides
+a high degree of portability between operating systems and windowing systems
+(although the primary target for VCPGUI is Linux and no Windows support is
+planned), At present, SDL 2 is being used.
+
+SDL cannot be accessed directly from Algol 68 Genie and A68G also has no
+FFI (foreign function interface), so it would not be easy to add such direct
+access. One approach to using SDL is to write a 'helper program' in C++. This
+program draws the graphical elements and fields interactions with them. It is
+started from A68G as a subprocess that communicates with A68G via a PIPE. 
+Software written in Algol 68 can use writes and reads to/from the PIPE to draw
+whatever it wants and to receive notification of 'interaction events'. 
+
+The C++14 based SDL display program is called DSURF (Display SURFace). It maintains
+a 'display list' built by commands sent by Algol 68 functions. The display list
+entries are commands to draw a small number of primitives supported by SDL. Commands
+exist that remove display list entries too, so elements can be updated by removing
+them then adding the updated versions of them. Primitives to remove are identified
+by their position on the drawing surface (positions are mostly center positions
+as this helps make this removal scheme work).
+
+Creation and update of the GUI elements, the size of the DSURF window, and responding
+to all interactions with those elements is done from Algol 68. All the program logic
+lives there.
+
+The lowest level drawing primitives are supplied by procedures with names
+beginning with `ds_`. The basic drawing commands are:
+
+- rectangles
+- rounded rectangles
+- filled rectangles
+- filled rounded rectangles
+- lines
+- thick lines
+- circles
+- filled circles
+- arcs
+- ellipses
+- filled ellipses
+- basic text
+- text drawn in a TrueType font
+- texture mapped rectangles
+
+These are mostly drawn by the SDL 2 graphics library. Unfortunately, except for
+thin lines, this does not do anti-aliasing, so 'good' looking output mostly relies
+on using textures.
+
+To help with texture usage, DSURF makes use of a single texture image (dsurf.png)
+and a texture atlas file (dsurf.tal) which identifies rectangular regions on the 
+texture image, each of which has a name which can be used to draw it at a specified
+position on the display surface. The texture rectangles can also be rotated about
+their centres. The texture image has an alpha channel, so irregularly shaped 
+primitives can be used rather than just rectangles.
+
+Only one procedure is used to allow interaction to work: `ds_sense_rect` which
+defines a rectangular area in which mouse clicks are fielded, resulting in messages
+being sent from DSURF to the Algol 68 code over the PIPE. These *sense rects* are
+usually aligned with drawn items, of course.
+
+The following GUI components are currently defined:
+
+- Push buttons
+- Toggle buttons
+- Radio buttons
+- Knobs ('continuously' variable numeric controls).
+- Selectors (rotary versions of radio buttons).
+- Keypads (to enter numeric values).
+- Numeric displays (to display general numeric values).
+- Lamps
+- Time displays (for HH:MM:SS displays).
+
+Keypads and numeric displays can be linked to allow easy numeric value input.
+
+Apart from the 'output only' components -- numeric and time displays and lamps --
+procedures can be associated with components that are called when interactions
+occur with those components (i.e. 'callbacks'). 
+
+Layout of components on the display surface must be done manually. Routines are
+provided to help with this, but there is no automatic layout available. 
+
+There are no facilities for inputting text from a keyboard (e.g. 'text widgets').
+There are no 'file browser' or similar components. There is no scrolling of the
+display surface window or any component.
+
+Clearly, VCPGUI is hardly competition for Qt! On the other hand, what it does is
+appropriate for a system intended to look like physical control panels and it is
+quite sufficient for a wide range of device control applications. The VCPGUI code
+itself consists of less than 2500 lines (< 1900 LOC) of Algol 68 and less than
+1600 lines of C++, which is pretty lightweight. That doesn't include SDL, of course,
+so it depends where you choose to draw lines to some extent. All Algol 68 code
+written in conjunction with VCPGUI (to 'include more batteries') is less than
+7500 lines (a bit over 5000 LOC).
 
 Nick Glazzard 2026.
 -------------------
@@ -15,6 +126,8 @@ PR read "utility.a68" PR
 # Some configuration. #
 STRING font_directory := "/usr/share/fonts/truetype/liberation2";
 BOOL fast_update := TRUE;
+BOOL on_top := FALSE;
+BOOL no_border := FALSE;
 
 # Handle end of the pipe connections to DSURF (DSURF exited?). #
 # Establish by using "on logical file end(pipes)" in main line,  #
@@ -48,10 +161,14 @@ PROC open_dsurf = (STRING title, INT width, INT height) PIPE:
    OD;
 
    STRING fast_update_string := (fast_update | "--update" | "");
+   STRING on_top_string := (on_top | "--ontop" | "");
+   STRING no_border_string := (no_border | "--nodecor" | "");
 
    # Run the display program and return the data needed to talk to it. #
    PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf",
                                                     fast_update_string,
+                                                    on_top_string,
+                                                    no_border_string,
                                                     "--title", title,
                                                     "--fontdir", font_directory,
                                                     "--width", wint(width),
@@ -387,16 +504,29 @@ PROC ds_stop_timer = ( PIPE p ) VOID:
 # To be called BEFORE open_gui() #
 
 # Set the TrueType font directory to search for fonts. Call BEFORE open_gui(). #
-PROC ds_set_fontdir = ( STRING dir ) VOID:
+PROC ds_config_set_fontdir = ( STRING dir ) VOID:
 (
    font_directory := dir
 );
 
 # Set or clear the "fast update" capability flag. If FALSE, only update with show_display commands. #
-PROC ds_set_fast_update = ( BOOL yes ) VOID:
+PROC ds_config_set_fast_update = ( BOOL yes ) VOID:
 (
    fast_update := yes
 );
+
+# Set keep DSURF window on top. #
+PROC ds_config_set_on_top = ( BOOL yes ) VOID:
+(
+   on_top := yes
+);
+
+# Set hide DSURF window decorations. #
+PROC ds_config_set_no_border = ( BOOL yes ) VOID:
+(
+   no_border := yes
+);
+
 
 # ============== #
 #  TINY UI CODE  #

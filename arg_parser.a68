@@ -1,6 +1,6 @@
 COMMENT
-arg_parser.a68 - A command line argument parser.
-================================================
+A command line argument parser.
+===============================
 
 This is go at a command line argument parser for Algol 68
 along the lines of Python's argparse or the CLI11 header only library

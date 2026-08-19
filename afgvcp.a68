@@ -260,7 +260,7 @@ REF AFG afg := open_afg(device_number, fake_device);
 
 # Open and configure the GUI display surface. #
 INT width := 600, height := 250;
-(slow_update | ds_set_fast_update(FALSE));
+(slow_update | ds_config_set_fast_update(FALSE));
 PIPE gui := open_gui("ANGEL DDS Function Generator", width, height);
 
 # Numeric display ... Move so the top left of this is 10 pixels from the top left of the window. #

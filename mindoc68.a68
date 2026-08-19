@@ -82,7 +82,22 @@ PROC format_intro = (REF STRING_LIST intro, REF FILE fout) VOID:
       BOOL ignore1 := (ELEMS output_line > 3 | (output_line[:3] = "---" | TRUE | FALSE) | FALSE);
       BOOL ignore2 := (ELEMS output_line > 3 | (output_line[:3] = "===" | TRUE | FALSE) | FALSE);
       BOOL ignore := ignore1 OR ignore2;
-      (NOT ignore | put(fout, (output_line, new line)));
+      IF NOT ignore
+      THEN
+         INT hypgo;
+         BOOL has_link := string in string("http://", hypgo, output_line);
+         (NOT has_link | has_link := string in string("https://", hypgo, output_line));
+         IF has_link
+         THEN
+            put(fout, (output_line[:hypgo-1], new line));
+            STRING urlbit := output_line[hypgo:];
+            INT hypend;
+            (NOT char in string(" ", hypend, urlbit) | hypend := ELEMS urlbit);
+            put(fout, ("[", urlbit[:min2int(hypend,70)], "](", urlbit[:hypend], ")", new line))
+         ELSE
+            put(fout, (output_line, new line))
+         FI
+      FI;
       list_line := NEXT intro
    OD;
 
@@ -270,7 +285,9 @@ THEN
       stop
    ELSE
       STRING files := config_get_string_value(cp, "files", "");
-      (files = "" | put(stand error, ("Invalid config file, giving up.", new line)); stop);
+      (files = "" | 
+            put(stand error, ("Invalid config file (no files keyword), giving up.", new line)); 
+            stop);
       REF STRING_LIST files_list := STRING_LIST_INIT LOC STRING_LIST;
       string_lines_to_string_list(files, files_list);
       source_files := string_list_as_array(files_list)

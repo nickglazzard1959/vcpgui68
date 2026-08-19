@@ -13,7 +13,7 @@
 //   CLI11.hpp (https://github.com/CLIUtils/CLI11, Releases page).
 //
 // Build:
-//   g++ -O0 -g dsurf.cpp -o dsurf -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image
+//   g++ -O0 -g dsurf.cpp -o dsurf -lSDL2 -lSDL2_gfx -lcSDL2_ttf -lSDL2_image
 //
 // With a local build of SDL2 try:
 //   g++ -O0 -g -Wall dsurf.cpp -o dsurf -I/usr/local/include/SDL2 -L/usr/local/lib 
@@ -1238,6 +1238,8 @@ int main (int ArgCount, char **Args)
   DRAW_STATE dstate;   // Graphics state.
   int iw = 1000;       // Default window width.
   int ih = 1000;       // Default window height.
+  bool ontop = false;  // Keep window on top.
+  bool nodecor = false;  // No window decorations.
   std::string title = "DSURF";  // Default window title.
   int quit = 0;        // Not quitting yet.
   int x_last_down = -1;
@@ -1314,6 +1316,8 @@ int main (int ArgCount, char **Args)
   app.add_flag("-d,--debug", dstate.debug_mode, "Turn on debug output.");
   app.add_flag("-k,--keep", dstate.keep_on_eof, "Keep open after EOF on stdin.");
   app.add_flag("-u,--update", dstate.fast_update, "Update SDL immediately. Don't wait for show_display.");
+  app.add_flag("-o,--ontop", ontop, "Keep the DSURF window on top of others.");
+  app.add_flag("-n,--nodecor", nodecor, "Remove all window decorations (no borders).");
 
   CLI11_PARSE(app, ArgCount, Args);
 
@@ -1334,7 +1338,8 @@ int main (int ArgCount, char **Args)
                     "Unable to initialize TTF: %s", SDL_GetError());
     return 1;    
   }
-  SDL_SetWindowBordered(window, SDL_TRUE ); //FALSE);
+  SDL_SetWindowBordered(window, (! nodecor) ? SDL_TRUE : SDL_FALSE);
+  SDL_SetWindowAlwaysOnTop(window, (ontop) ? SDL_TRUE : SDL_FALSE);
   SDL_SetWindowTitle(window, title.c_str());
   SDL_RaiseWindow(window);
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);

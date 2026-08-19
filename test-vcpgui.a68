@@ -6,6 +6,8 @@ Nick Glazzard 2026.
 -------------------
 COMMENT
 
+PR heap=128M PR 
+
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
 PR read "config_parser.a68" PR
@@ -102,7 +104,7 @@ STRING font_dir := config_get_string_value(config_parser,
                                            "/usr/share/fonts/truetype/liberation2");
 print(("font dir = ",font_dir,new line));
 
-ds_set_fontdir(font_dir);
+ds_config_set_fontdir(font_dir);
    
 PIPE dsurf_pipe = open_dsurf("Hello", 1000, 1000);
 print(("DSURF PID = ", wint(pid OF dsurf_pipe), new line));

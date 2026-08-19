@@ -1,6 +1,6 @@
 COMMENT
-angelfg.a68 - Routines for controlling an ANGEL X3325X DDS function generator over serial.
-==========================================================================================
+Routines for controlling an ANGEL X3325X DDS function generator over serial.
+============================================================================
 
 Allow all features of this homemade function generator to be controlled programmatically.
 Since the device has no physical control panel, this is really the only way to use it!

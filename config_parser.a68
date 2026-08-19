@@ -1,8 +1,8 @@
 COMMENT
-config_parser.a68 - Read a config file, parse it and allow its definitions to be accessed as variables
-======================================================================================================
+Read a config file, parse it and allow its definitions to be accessed as variables
+==================================================================================
 
-This basically parses a sub-set of TOML (probably), but compatibility beyond basics wasn't a goal.
+This parses something like a sub-set of TOML, but compatibility wasn't a goal.
 A full TOML parser should cope with the things this parser can deal with, though.
 
 Example of usage:
@@ -24,7 +24,7 @@ FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2))
 
 Beyond the straightforward use of getting settings from a configuration file, the key-value pairs can
 be grouped into 'tables' and those tables can be used pretty much as separate 'dictionaries' or
-'associative arrays' with string keys and string (plain, literal or multi-line), integer, real
+'associative arrays' with string keys and string (plain, literal or multi-line), integer, boolean, real
 or array-of-real values. Key-value pairs and tables can be added to a CONFIG_PARSE object without
 referencing a file at all, which may sometimes be useful.
 
@@ -245,9 +245,11 @@ PROC parse_config_file = (REF CONFIG_PARSE config_parser) BOOL:
 
    # Open the config file. #
    FILE fin;
-   IF open_file(config_file_name OF config_parser, "r", fin) /= 0
+   INT openstatus := open_file(config_file_name OF config_parser, "r", fin);
+   IF openstatus /= 0
    THEN
-      put(stand error, (("Failed to open config file: ", config_file_name OF config_parser, new line)))
+      put(stand error, (("Failed to open config file: ", config_file_name OF config_parser, new line)));
+      print_os_error("parse_config_file(): Open error:", openstatus)
    ELSE
       STRING input_line;
       on file end(fin, at_eof);

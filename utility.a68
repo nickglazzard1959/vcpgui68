@@ -1,6 +1,18 @@
 COMMENT
-utility.a68 - Widely useful sundry routines, many to do with strings.
-=====================================================================
+Widely useful sundry routines, many to do with strings.
+=======================================================
+
+Includes:
+
+- Some time related routines, such as simple arithmetic in hours, minutes and seconds.
+- Routines for clamping numbers to ranges and min and max functions.
+- Many routines for trimming white space from strings, classifying strings and so on.
+- Many routines for converting strings to INTs and REALs and vice versa.
+- Functions for opening files and character devices in familiar ways.
+- Functions for splitting filenames and paths (getting extensions, base name, etc.)
+- Functions for reading and writing 1D and 2D arrays (row and row,row) of REALs to/from files.
+- Some other simple array functions.
+- Some aids to handl      `ing errors.
 
 Nick Glazzard 2026
 ------------------

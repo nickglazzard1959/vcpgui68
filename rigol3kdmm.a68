@@ -1,6 +1,6 @@
 COMMENT
-rigol3kdmm.a68 - Routines for controlling a Rigol 3K series DMM over USBTMC.
-============================================================================
+Routines for controlling a Rigol 3K series DMM over USBTMC.
+===========================================================
 
 A subset of commands (hopefully the most useful) for a Rigol DM3000
 series multi-meter are implemented. This has been tested with a DM3058E on
