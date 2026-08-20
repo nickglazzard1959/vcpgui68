@@ -125,6 +125,7 @@ PR read "utility.a68" PR
 
 # Some configuration. #
 STRING font_directory := "/usr/share/fonts/truetype/liberation2";
+STRING click_audio := get env("HOME") + "/.config/vcpgui68/clicky.wav";
 BOOL fast_update := TRUE;
 BOOL on_top := FALSE;
 BOOL no_border := FALSE;
@@ -172,7 +173,8 @@ PROC open_dsurf = (STRING title, INT width, INT height) PIPE:
                                                     "--title", title,
                                                     "--fontdir", font_directory,
                                                     "--width", wint(width),
-                                                    "--height", wint(height)), 
+                                                    "--height", wint(height),
+                                                    "--audiofile", click_audio), 
                                         envars);
    IF pid OF dsurf_pipe = 0
    THEN
@@ -525,6 +527,12 @@ PROC ds_config_set_on_top = ( BOOL yes ) VOID:
 PROC ds_config_set_no_border = ( BOOL yes ) VOID:
 (
    no_border := yes
+);
+
+# Set the audio file to use for button clicks. #
+PROC ds_config_set_click_audio = ( STRING filename ) VOID:
+(
+   click_audio := filename
 );
 
 
@@ -1961,6 +1969,12 @@ PROC add_timedisplay = (STRING tag, INT x, y, INT h, m, s) VOID:
    (check_new_tag(tag) | add_component( make_timedisplay(tag, x, y, h, m, s) ))
 );
 
+# Add a time display initialised with an HMSTIME. #
+PROC add_timedisplay_hms = (STRING tag, INT x, y, HMSTIME hms) VOID:
+(
+   add_timedisplay(tag, x, y, h OF hms, m OF hms, s OF hms)
+);
+
 # Calculate layout parameters for a time display. #
 PROC calc_time_layout = (REF TIMEDISPLAY td, REF INT digit_width, digit_height,
                          colon_width, array_width, xc, yc) VOID:
@@ -2071,6 +2085,12 @@ PROC update_timedisplay = (PIPE p, REF TIMEDISPLAY td, INT h, m, s) VOID:
    instantiate_timedisplay(p, td)
 );
 
+# As update_timedisplay(), but with an HMSTIME argument. #
+PROC update_timedisplay_hms = (PIPE p, REF TIMEDISPLAY td, HMSTIME hms) VOID:
+(
+   update_timedisplay(p, td, h OF hms, m OF hms, s OF hms)
+);
+
 # Set the contents of a time display. #
 PROC set_timedisplay = (PIPE p, STRING tag, INT h, m, s) VOID:
 (
@@ -2086,6 +2106,12 @@ PROC set_timedisplay = (PIPE p, STRING tag, INT h, m, s) VOID:
          put(stand error,("set_timedisplay(): Component [",tag,"] is not a TIMEDISPLAY.",newline))
       ESAC
    FI
+);
+
+# As set_timedisplay(), but with an HMSTIME argument. #
+PROC set_timedisplay_hms = (PIPE p, STRING tag, HMSTIME hms) VOID:
+(
+   set_timedisplay(p, tag, h OF hms, m OF hms, s OF hms)
 );
 
 

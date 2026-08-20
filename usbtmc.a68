@@ -146,6 +146,7 @@ PROC get_usbtmc = (REF USBTMC device, REF STRING s) INT:
       retval := g_transput_errno;
       (retval /= 0 | done);
       s +:= in1;                 # Always add the character. #
+      print(("*****[",s,"]",newline));
       (end of line(fin OF device) | done)
    OD;
    done:

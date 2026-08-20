@@ -28,7 +28,7 @@ PROC tick_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
       (REF TIMER tm): (
          HMSTIME now := get_time_of_day(NOT local);
          HMSTIME adjusted := now + delta;
-         set_timedisplay(gui, "display", h OF adjusted, m OF adjusted, s OF adjusted);
+         set_timedisplay_hms(gui, "display", adjusted);
          set_timer(gui, "timer", TRUE, FALSE) # Restart the timer. #
       )
    OUT
@@ -87,6 +87,9 @@ REF BOOL ontop := arg_add_flag(arg_parser, "-o", "--ontop",
 REF BOOL nodecor := arg_add_flag(arg_parser, "-n", "--noborder",
                                  "Turn off window border for DSURF.",
                                  FALSE);
+REF STRING audiofile := arg_add_string_option(arg_parser, "-a", "--audiofile",
+                                              "Specify the name of the audio file for button clicks.",
+                                              get env("HOME") + "/.config/vcpgui68/clicky.wav");
 ( NOT parse_args(arg_parser) |
       put(stand error, ("Unknown or malformed command line arguments.", new line)); 
       stop );
@@ -124,10 +127,11 @@ INT width := 386, height := 130;
 ds_config_set_fast_update(immediate_update);
 ds_config_set_on_top(ontop);
 ds_config_set_no_border(nodecor);
+ds_config_set_click_audio(audiofile);
 PIPE gui := open_gui("Clock", width, height);
 
 # Get current local time. #
-[8]INT itime := local time;
+HMSTIME itime := get_time_of_day(FALSE);
 
 # Add a timer, expiring each second. #
 add_timer("timer", tick_proc, 1000);
@@ -135,7 +139,7 @@ add_timer("timer", tick_proc, 1000);
 # Time display. #
 INT margin = 10;
 ui_colour(gui, "feature");
-add_timedisplay("display", width%2, 65, itime[4], itime[5], itime[6]);
+add_timedisplay_hms("display", width%2, 65, itime);
 move_component("display", "tl", margin, margin);
 
 # Buttons, centered on time display. #

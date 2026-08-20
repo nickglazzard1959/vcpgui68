@@ -26,6 +26,8 @@
 #include <stdint.h>
 #include <assert.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL2_gfxPrimitives.h>
@@ -152,7 +154,6 @@ typedef struct
 } THREAD_DATA;
 
 // Define a class to play a sound from a WAV file using SDL2 calls.
-#define MUS_PATH "/home/nick/gitprojects/vcpgui68/clicky.wav"
 class PlayWAVSound
 {
 public:
@@ -1231,7 +1232,12 @@ int main (int ArgCount, char **Args)
 {
   SDL_Window *window = NULL;
   SDL_Renderer *renderer = NULL;
+  Uint32 display_width = 0, display_height = 0;
+  Uint32 display_top_margin = 50; // Space for a top menu bar.
+  SDL_DisplayMode display_mode;
   SDL_Event event;
+  SDL_version compiled;
+  SDL_version linked;
 
   DISPLAY_LIST dlist;  // Main display list.
   DISPLAY_LIST olist;  // Overlay display list.
@@ -1244,9 +1250,6 @@ int main (int ArgCount, char **Args)
   int quit = 0;        // Not quitting yet.
   int x_last_down = -1;
   int y_last_down = -1;
-
-  SDL_version compiled;
-  SDL_version linked;
  
   SDL_VERSION(&compiled);
   SDL_GetVersion(&linked);
@@ -1266,6 +1269,11 @@ int main (int ArgCount, char **Args)
   dstate.cur_font = 0;
   dstate.fontdir = "/usr/share/fonts/truetype/liberation2";
   dstate.timer = TIMER_NOT_SET;
+
+  std::string homedir(getpwuid(getuid())->pw_dir);
+  std::string click_audio = homedir + "/.config/vcpgui68/clicky.wav";
+
+  //#define MUS_PATH "/home/nick/gitprojects/vcpgui68/clicky.wav"
 
   // Command map.
   CMD_MAP cmdmap
@@ -1312,6 +1320,7 @@ int main (int ArgCount, char **Args)
   app.add_option("-y,--height", ih, "Height of display window in lines.");
   app.add_option("-t,--title", title, "Set the window title.");
   app.add_option("-f,--fontdir", dstate.fontdir, "TrueType fonts directory to use.");
+  app.add_option("-a,--audiofile", click_audio, "Audio file for button click sounds.");
 
   app.add_flag("-d,--debug", dstate.debug_mode, "Turn on debug output.");
   app.add_flag("-k,--keep", dstate.keep_on_eof, "Keep open after EOF on stdin.");
@@ -1345,11 +1354,19 @@ int main (int ArgCount, char **Args)
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderClear(renderer);
   SDL_RenderPresent(renderer);
+  if( SDL_GetCurrentDisplayMode(0, &display_mode) != 0 ){
+    SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION,
+                    "Cannot get display size: %s", SDL_GetError());
+    return 1;
+  }
+  display_width = display_mode.w;
+  display_height = display_mode.h - display_top_margin;
 
   // Load a click sound.
-  PlayWAVSound sound(MUS_PATH);
+  PlayWAVSound sound(click_audio.c_str());
   if( ! sound.ok ){
-    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot open sound file: %s.\n", MUS_PATH);
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot open sound file: %s.\n",
+                 click_audio.c_str());
   }
 
   // Load a default font for TTF text into font 0.
@@ -1408,14 +1425,55 @@ int main (int ArgCount, char **Args)
 
       // Keyboard presses ...
       if( event.type == SDL_KEYDOWN ){
+        SDL_Keymod modifier_keys = SDL_GetModState();
 
-        // q: exit the program.
-        if(event.key.keysym.sym == SDLK_q){
-          quit = 1;
-          drawn = true; // Don't bother redrawing if exiting.
-          break;
-        }
+        // Treat ALT+key as hot keys.
+        if( (modifier_keys & KMOD_ALT) != 0 ){
 
+          // q: exit the program.
+          if(event.key.keysym.sym == SDLK_q){
+            quit = 1;
+            drawn = true; // Don't bother redrawing if exiting.
+            break;
+          }
+
+          // Other keys. For now, just use these to move the window around.
+          // This capability is essential if the window in borderless,
+          {
+            int window_width=0, window_height=0;
+  
+            switch( event.key.keysym.sym ){
+            case SDLK_a: // Top left
+              SDL_SetWindowPosition(window, 0, 0);
+              break;
+            case SDLK_b: // Top right
+              SDL_GetWindowSize(window, &window_width, &window_height);
+              SDL_SetWindowPosition(window, display_width-window_width-1, 0);
+              break;
+            case SDLK_c: // Center
+              SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+              break;
+            case SDLK_d: // Bottom left
+              SDL_GetWindowSize(window, &window_width, &window_height);
+              SDL_SetWindowPosition(window, 0, display_height-window_height-1);
+              break;
+            case SDLK_e: // Bottom right
+              SDL_GetWindowSize(window, &window_width, &window_height);
+              SDL_SetWindowPosition(window, display_width-window_width-1, 
+                                    display_height-window_height-1);
+              break;
+            case SDLK_f: // Top middle
+              SDL_GetWindowSize(window, &window_width, &window_height);
+              SDL_SetWindowPosition(window, (display_width-window_width)/2-1, 0);
+              break;
+            case SDLK_g: // Bottom middle
+              SDL_GetWindowSize(window, &window_width, &window_height);
+              SDL_SetWindowPosition(window, (display_width-window_width)/2-1, 
+                                    display_height-window_height-1);
+              break;
+            }
+          } // positioning hotkeys
+        } // ALT+key
       } // key press
 
       // Mouse interactions ...

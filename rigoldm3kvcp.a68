@@ -14,6 +14,8 @@ Nick Glazzard 2026
 ------------------
 COMMENT
 
+PR heap=256M PR
+
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
 PR read "config_parser.a68" PR
