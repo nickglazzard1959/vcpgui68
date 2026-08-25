@@ -1,11 +1,14 @@
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <linux/usb/tmc.h>
 
 int write_string_usbtmc( int fd, const char* string )
 //---------------------------------------------------
@@ -76,6 +79,19 @@ int main( int argc, char** argv )
   if( fd < 0 ){
     fprintf(stderr, "Device open failed.\n");
     perror("Device open");
+  }
+
+  __u32 timeout_ms = 15000;
+  if( ioctl(fd, USBTMC_IOCTL_SET_TIMEOUT, &timeout_ms) < 0 ){
+    perror("Set timeout failed");
+    close(fd);
+    return 1;
+  }
+
+   if( ioctl(fd, USBTMC_IOCTL_CLEAR) < 0 ){
+    perror("Clear failed");
+    close(fd);
+    return 1;
   }
 
   char result[4000];

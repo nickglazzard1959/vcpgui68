@@ -454,6 +454,15 @@ PROC all_digits_signed = (STRING s) BOOL:
    retval
 );
 
+# Check string only contains hexadecimal digits. #
+PROC all_hexdigits = (STRING s) BOOL:
+(
+   BOOL yes := (ELEMS s > 0);
+   FOR i TO ELEMS s DO (NOT is xdigit(s[i]) | (yes := FALSE; done)) OD;
+   done:
+   yes
+);
+
 # String to integer. NOTE: I don't know how to use event routines with string transput ... #
 # Actually, I think associate is the answer, but never mind. #
 PROC string_to_int = (STRING s) INT:

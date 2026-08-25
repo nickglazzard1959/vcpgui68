@@ -11,23 +11,12 @@ Fluke command sets - presumably as used by those brands). The Agilent set
 seems very similar, so it might be easy to adapt this to work with Agilent
 devices. The Fluke set seems quite different, though.
 
-There are two "issues" which are not readily soluble:
-
-1. Opening the device quite often fails with "protocol error". This can be
-   worked round by unplugging and replugging the device. This happens with
-   a C++ test program too. This *may* be something specific to how Rigol
-   has implemented USBTMC ... there are threads on the Internet about this.
-2. If a measurement times out, communications become confused. This may
-   require powering the device off and on again. This only happens with
-   auto-ranged capacitance measurement though. It looks like USBTMC has a 
-   default timeout of 5 seconds. This can be adjusted with an ioctl(), but
-   we can't use that from Algol 68 Genie.
 
 Nick Glazzard 2026
 ------------------
 COMMENT
 
-PR read "usbtmc.a68" PR
+PR read "tmcusbio.a68" PR
 
 # Try to keep as much information about the device as possible in a table. #
 # It turns out that the range is entirely function dependent - each function tracks its own range. #
@@ -68,34 +57,34 @@ INT k_nf = k_cap;
 );
 
 # Current state of the device. Range must be tracked independently for each function. #
-MODE DMKKK = STRUCT( REF USBTMC device, INT i_func, [k_nf]INT i_range );
+MODE DMKKK = STRUCT( PIPE device, BOOL ok, INT i_func, [k_nf]INT i_range );
 
 # ===================== #
 # Device open and close #
 # ===================== #
 
-# Open a connection to a DM3K multi-meter on /dev/usbtmc<dev_no> #
-# The device MUST be attached, and r/w permissions MUST have been set on it #
-# before calling this routine. open_usbtmc() checks for this. Optionally, reset #
-# the device. #
-PROC open_dm3k = (INT dev_no, BOOL reset) REF DMKKK:
+# Open a connection to a DM3K multi-meter using its vendorID and productId (see lsusb). #
+# The device MUST be attached, and r/w permissionsUDEV rules MUST have been set for it #
+# before calling this routine. Optionally, reset the device. #
+PROC open_dm3k = (STRING vid, STRING pid, BOOL reset) REF DMKKK:
 (
    REF DMKKK dev3k = HEAP DMKKK;
-   REF USBTMC device := device OF dev3k := open_usbtmc(dev_no);
-   (NOT valid OF device | done);
+   PIPE p;
+   BOOL ok := open_usbtmc(vid, pid, p);
 
    # Start off in DCV with auto-ranging on all functions. Should be correct after a reset. #
-   dev3k := (device, k_dcv, (k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto));
+   dev3k := (p, ok, k_dcv, (k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto));
+   (NOT ok OF dev3k | done);
 
    # See if this (dev_no) looks like a Rigol DM3000. #
    STRING inquiry;
-   VOID(query_usbtmc(device, "*IDN?", inquiry));
+   VOID(query_usbtmc(p, "*IDN?", inquiry));
    IF NOT (string in string("Rigol", NIL, inquiry) AND string in string("DM3", NIL, inquiry))
    THEN
       put(stand error, ("Inquiry string did not contain items expected for a Rigol DM3000 device. \
 Open failed.", new line));
       put(stand error, ("[",inquiry,"]",new line));
-      VOID(close_usbtmc(device)); # This makes valid OF device FALSE. #
+      VOID(close_usbtmc(p));
       done
    FI;
 
@@ -105,16 +94,17 @@ Open failed.", new line));
    # ranging in that case. This may work for the current function, at least.  #
    IF reset 
    THEN
-      ie(put_usbtmc(device, "*RST"))
+      ie(put_usbtmc(p, "*RST"));
+      sleep_void(5)
 
    ELSE
       # Get the current function from the device. #
       (NOT get_function_dm3k(dev3k) | 
-            VOID(close_usbtmc(device OF dev3k)); valid OF device OF dev3k := FALSE; done);
+            VOID(close_usbtmc(device OF dev3k)); ok OF dev3k := FALSE; done);
 
       # Set manual ranging mode and get the range for the current function. #
       (NOT set_manual_range_dm3k(dev3k) |
-            VOID(close_usbtmc(device OF dev3k)); valid OF device OF dev3k := FALSE; done)
+            VOID(close_usbtmc(device OF dev3k)); ok OF dev3k := FALSE; done)
    FI;
 
    done:
@@ -124,7 +114,7 @@ Open failed.", new line));
 # Check if the device was opened correctly. #
 OP DEV_INVALID = (REF DMKKK dev3k) BOOL:
 (
-   NOT (valid OF device OF dev3k)
+   NOT (ok OF dev3k)
 );
 
 # Close the device. #
@@ -171,7 +161,7 @@ PROC get_function_dm3k = (REF DMKKK dev3k) BOOL:
    (DEV_INVALID dev3k | done);
    STRING response;
    INT i_func;
-   REF USBTMC dev := device OF dev3k;
+   PIPE dev := device OF dev3k;
 
    # Get the current function from the device. #
    INT status := query_usbtmc(dev, ":FUNC?", response);
@@ -190,7 +180,7 @@ PROC set_function_dm3k = (REF DMKKK dev3k, STRING function) BOOL:
 (
    BOOL retval := FALSE;
    (DEV_INVALID dev3k | done);
-   REF USBTMC dev := device OF dev3k;
+   PIPE dev := device OF dev3k;
    STRING despaced_upper_function := despace(string_to_upper(function));
 
    # Identify the requested function. #
@@ -232,7 +222,7 @@ PROC get_range_dm3k = (REF DMKKK dev3k, BOOL override_auto, REF INT queried_code
    (DEV_INVALID dev3k | done);
    STRING response;
    INT i_func;
-   REF USBTMC dev := device OF dev3k;
+   PIPE dev := device OF dev3k;
 
    # Check current function is valid. #
    ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "get_range"); done);
@@ -318,7 +308,7 @@ PROC set_manual_range_dm3k = (REF DMKKK dev3k) BOOL:
 (
    BOOL retval := FALSE;
    (DEV_INVALID dev3k | done);
-   REF USBTMC dev := device OF dev3k;
+   PIPE dev := device OF dev3k;
 
    # Tell the device to enter manual ranging mode for the current function. #
    INT status := put_usbtmc(dev, ":MEAS MANU"); 
@@ -337,7 +327,7 @@ PROC set_auto_range_dm3k = (REF DMKKK dev3k) BOOL:
 (
    BOOL retval := FALSE;
    (DEV_INVALID dev3k | done);
-   REF USBTMC dev := device OF dev3k;
+   PIPE dev := device OF dev3k;
 
    # Check current function is valid. #
    ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "set_auto_range"); done);
@@ -358,7 +348,7 @@ PROC set_range_dm3k = (REF DMKKK dev3k, INT range) BOOL:
 (
    BOOL retval := FALSE;
    (DEV_INVALID dev3k | done);
-   REF USBTMC dev := device OF dev3k;
+   PIPE dev := device OF dev3k;
 
    # If range is k_auto, let  set_auto_range_dm3k() do the work. #
    (range = k_auto | retval := set_auto_range_dm3k(dev3k); done);
@@ -464,7 +454,7 @@ PROC measure_dm3k = (REF DMKKK dev3k, REF REAL value, REF BOOL overload) BOOL:
    value := 0.0;
    overload := FALSE;
    (DEV_INVALID dev3k | done);
-   REF USBTMC dev := device OF dev3k;
+   PIPE dev := device OF dev3k;
 
    # Check current function is valid. #
    ( (i_func OF dev3k) < 1 OR (i_func OF dev3k) > k_nf | invalid_i_func(dev3k, "measure"); done);
@@ -492,9 +482,9 @@ PROC measure_dm3k = (REF DMKKK dev3k, REF REAL value, REF BOOL overload) BOOL:
 # TESTS. #
 # ------ #
 
-IF FALSE
+IF TRUE
 THEN
-REF DMKKK dev := open_dm3k(2, TRUE);
+REF DMKKK dev := open_dm3k("0x1ab1", "0x09c4", TRUE);
 (DEV_INVALID dev | put(stand error, ("Open failed.", new line)); stop);
 
 REAL value := 0.0;

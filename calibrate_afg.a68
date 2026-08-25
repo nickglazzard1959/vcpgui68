@@ -12,21 +12,55 @@ Nick Glazzard 2026
 ------------------
 COMMENT
 
+PR heap=256M PR 
+
 PR read "angelfg.a68" PR
 PR read "rigol3kdmm.a68" PR
+PR read "arg_parser.a68" PR
+
+# Output calibration file name. #
+STRING default_cal_file_name := "new_afg_calibration.dat";
+
+# Parse command line arguments. These MUST appear after --. #
+REF ARG_PARSE arg_parser := make_arg_parser("AFG Amplitude Calibration Program");
+arg_set_description(arg_parser,
+"This program generates a new calibration table for the ANGEL Function Generator\n\
+by measuring the generator output for every setting of the attenuators in the AFG.\n\
+In addition to the AFG, a Rigol 3000 series multimeter is needed, connected to\n\
+the AFG. Be careful not to overwrite the active calibration file (afg_calibration.dat)\n\
+unless you are sure you want to do that!");
+REF INT device_number := arg_add_int_option(arg_parser, "-m", "--meter",
+                                            "Rigol DM3K Multimeter Device number.",
+                                            2);
+REF INT afg_number := arg_add_int_option(arg_parser, "-g", "--afg",
+                                         "AFG Device number.",
+                                         0);
+REF STRING cal_file_name := arg_add_string_option(arg_parser, "-c", "--calfile",
+                                                  "Output calibration file name.",
+                                                  default_cal_file_name);
+REF BOOL reset_device := arg_add_flag(arg_parser, "-r", "--reset",
+                                      "Reset the Rigol device on open.",
+                                      FALSE);
+( NOT parse_args(arg_parser) |
+      put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
 
 # Array to hold the measured voltage values for every range and attenuation. #
 # We'll use a 1D array as the range, attenuation and gain mode can be found very easily. #
 [0:1535]REAL measured_volts;
 
 # Open the DMM. Usually appears on /dev/usbtmc2. #
-REF DMKKK dmm := open_dm3k(2, TRUE);
-(DEV_INVALID dmm | put(stand error, ("Cannot open multimeter. Giving up.", new line)); stop);
+REF DMKKK dmm := open_dm3k(device_number, reset_device);
+(DEV_INVALID dmm | put(stand error, ("Cannot open multimeter. Giving up.", new line));
+                   stop);
+
+# It looks like you must wait until the reset completes. There may be alternatives! #
+(reset_device | pause("Please wait for device reset to complete"));
 
 # Open the function generator. Usually appears on /dev/ttyACM0. #
-REF AFG afg := open_afg(0);
+REF AFG afg := open_afg(afg_number, FALSE);
 (AFG_INVALID afg | put(stand error, ("Cannot open function generator. Giving up.", new line));
-                   close_dm3k(dmm); stop);
+                   close_dm3k(dmm);
+                   stop);
 
 # Set AC RMS voltage measurement on the DMM and sine waves at 1kHz from the function generator. #
 (NOT set_waveform_afg(afg, "sine") | put(stand error, ("Failed to set waveform. Giving up.", new line));
@@ -35,6 +69,8 @@ REF AFG afg := open_afg(0);
                                       fail);
 (NOT set_function_dm3k(dmm, "ACV") | put(stand error, ("Failed to set ACV on DMM. Giving up.", new line));
                                      fail);
+(NOT set_auto_range_dm3k(dmm) | put(stand error, ("Failed to auti ranging on DMM. Giving up.", new line));
+                                fail);
 
 # Step over all gain, range and attenuator settings.#
 INT j := 0;
@@ -71,7 +107,6 @@ DO
 OD;
 
 # Write the measured volts array. This is the calibration array. #
-STRING cal_file_name := "afg_calibration.dat";
 (NOT write_1d_real_array(cal_file_name, measured_volts) |
       put(stand error, ("Failed to write calibration data.", new line)) |
          put(stand error, ("Wrote calibration data to: ", cal_file_name, new line)));

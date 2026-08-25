@@ -1,0 +1,127 @@
+COMMENT
+tmcusbio.a68 - Perform basic i/o to a USBTMC device on Linux (for instrument control).
+======================================================================================
+
+This communicates with a device using the USBTMC protocol via the tmcusbio.cpp helper
+program.
+
+Originally, this was handled by usbtmc.a68 via the kernel USBTMC driver in Linux.
+This makes devices accessible as /dev/usbtmc<N>. Unfortunately, this did not work
+perfectly reliably. It *could* perform thousands of queries without error, then fail,
+or fail almost immediately. Even more unfortunately, upgrading from a 5.10 Linux kernel
+to a 6.0 kernel made things significantly *worse*. Life is too short to try to work
+out what the real cause of this is. Much less fix it. Note that the problems were
+*not* related to using Algol 68 ... C++ test programs had exactly the same issues.
+
+So, we are now trying a libusb based solution. Since libusb works almost entirely in user
+space, working around defects (whatever their cause) is a lot more feasible than with the
+kernel based USBTMC implementation.
+
+As with the serialio.a68 code, we launch the C++ based helper program which uses libusb
+to communicate with devices. We talk to that program with a PIPE -- the helper just reads
+from stdin and writes to stdout.
+
+COMMENT
+
+PR read "utility.a68" PR
+
+# Run tmcusbio returning a pair of pipes connected to its stdin and stdout. #
+# The device is identified by a 'vendorId', 'productId' pair, supplied as  #
+# STRINGs here. #
+PROC open_usbtmc = (STRING vid, STRING pid, REF PIPE usbp) BOOL:
+(
+   BOOL retval := FALSE;
+
+   # Do some checks on vid and pid. They should be of the form: 0xnnnn. #
+   BOOL valid_vid := ((ELEMS vid = 6) AND (vid[1:2] = "0x") AND all_hexdigits(vid[3:]));
+   BOOL valid_pid := ((ELEMS pid = 6) AND (pid[1:2] = "0x") AND all_hexdigits(pid[3:]));
+   (NOT (valid_vid AND valid_pid) |
+         put(stand error, ("Supplied vendorId (",vid,") or productID (",pid,") are malformed.", new line));
+         done);
+
+   # Run tmcusbio and return the pipe needed to talk to it. #
+   PIPE usb_pipe := execve child pipe("./tmcusbio", ("tmcusbio",
+                                                     "--vendorid", vid,
+                                                     "--productid", pid),
+                                      "");
+   IF pid OF usb_pipe = 0
+   THEN
+      put(stand error, ("open_usbtmc(): Failed to create child process.", new line));
+      done
+   FI;
+   usbp := usb_pipe;
+   retval := TRUE;
+
+   done:
+   retval
+);
+
+# Close the device. This terminates the helper program. #
+PROC close_usbtmc = (PIPE p) INT:
+(
+   INT retval := 0;
+   STRING response;
+   put(write OF p, ("X", new line));
+   get(read OF p, (response, new line));
+   CO put(stand error, ("[",response,"]",new line)); CO
+   (response /= "*ok" |
+         put(stand error, ("close_usbtmc() error: [",response,"]",new line));
+         retval := 1
+   );
+   retval
+);
+
+# Send a string to a USBTMC device. #
+PROC put_usbtmc = (PIPE p, STRING s) INT:
+(
+   INT retval := 0;
+   STRING response;
+   put(write OF p, ("P"+s, new line));
+   get(read OF p, (response, new line));
+   CO put(stand error, ("[",response,"]",new line)); CO
+   (response /= "*ok" |
+         put(stand error, ("put_usbtmc() error: [",response[2:],"]",new line));
+         retval := 1
+   );
+   retval
+);
+
+# Send a string to a USBTMC device and get a response string. #
+PROC query_usbtmc = (PIPE p, STRING s, REF STRING result) INT:
+(
+   INT retval := 0;
+   STRING response;
+   put(write OF p, ("Q"+s, new line));
+   get(read OF p, (response, new line));
+   CO put(stand error, ("[",response,"]",new line)); CO
+   (response[1] = "?" |
+         put(stand error, ("query_usbtmc() error: [",response[2:],"]",new line));
+         retval := 1 |
+            result := response[2:]
+   );
+   retval
+);
+
+# ------ #
+# TESTS. #
+# ------ #
+
+IF FALSE
+THEN
+PIPE usb;
+BOOL ok := open_usbtmc("0x1ab1", "0x09c4", usb);
+(NOT ok | put(stand error, ("Ugh",newline)); stop);
+
+print(("put_usbtmc() ", put_usbtmc(usb, "*RST"), newline));
+sleep_void(5);
+
+STRING result;
+print(("query_usbtmc() ", query_usbtmc(usb, "*IDN?", result), newline));
+print((result,newline));
+
+print(("query_usbtmc() ", query_usbtmc(usb, ":MEAS:VOLT:AC?", result), newline));
+print((result,newline));
+
+print(("close_usbtmc() ", close_usbtmc(usb), newline))
+
+FI;

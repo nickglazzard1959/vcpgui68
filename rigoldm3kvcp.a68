@@ -188,12 +188,18 @@ REF ARG_PARSE arg_parser := make_arg_parser("Rigol DM3K Multimeter Virtual Contr
 REF INT device_number := arg_add_int_option(arg_parser, "-d", "--device",
                                                 "Device number.",
                                                 2);
+REF BOOL reset_device := arg_add_flag(arg_parser, "-r", "--reset",
+                                      "Reset the device on open.",
+                                      FALSE);
 ( NOT parse_args(arg_parser) |
       put(stand error, ("Unknown or malformed command line arguments.", new line)); stop );
 
 # Try to open the device before we do anything with the GUI. #
-REF DMKKK device := open_dm3k(device_number, TRUE);
+REF DMKKK device := open_dm3k(device_number, reset_device);
 (DEV_INVALID device | print(("Failed to open multi-meter. Giving up.",newline)); stop);
+
+# It looks like you must wait until the reset completes. There may be alternatives! #
+(reset_device | pause("Please wait for device reset to complete"));
 
 # Open and configure the GUI display surface. #
 INT width := 600, height := 250;
@@ -250,6 +256,7 @@ ieb(set_function_dm3k(device, "DCV"));
 
 # Create and run the GUI. #
 instantiate(dsurf_pipe);
+CO pause("After instantiate"); CO
 run_event_loop(dsurf_pipe);
 
 # Shut down. #
