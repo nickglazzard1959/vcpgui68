@@ -29,9 +29,6 @@ by measuring the generator output for every setting of the attenuators in the AF
 In addition to the AFG, a Rigol 3000 series multimeter is needed, connected to\n\
 the AFG. Be careful not to overwrite the active calibration file (afg_calibration.dat)\n\
 unless you are sure you want to do that!");
-REF INT device_number := arg_add_int_option(arg_parser, "-m", "--meter",
-                                            "Rigol DM3K Multimeter Device number.",
-                                            2);
 REF INT afg_number := arg_add_int_option(arg_parser, "-g", "--afg",
                                          "AFG Device number.",
                                          0);
@@ -49,7 +46,7 @@ REF BOOL reset_device := arg_add_flag(arg_parser, "-r", "--reset",
 [0:1535]REAL measured_volts;
 
 # Open the DMM. Usually appears on /dev/usbtmc2. #
-REF DMKKK dmm := open_dm3k(device_number, reset_device);
+REF DMKKK dmm := open_dm3k(reset_device);
 (DEV_INVALID dmm | put(stand error, ("Cannot open multimeter. Giving up.", new line));
                    stop);
 

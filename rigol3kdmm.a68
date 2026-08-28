@@ -63,14 +63,16 @@ MODE DMKKK = STRUCT( PIPE device, BOOL ok, INT i_func, [k_nf]INT i_range );
 # Device open and close #
 # ===================== #
 
-# Open a connection to a DM3K multi-meter using its vendorID and productId (see lsusb). #
-# The device MUST be attached, and r/w permissionsUDEV rules MUST have been set for it #
+# Open a connection to a DM3K multi-meter. The vendorID and productId are internally fixed. #
+# The device MUST be attached, and r/w permissions via UDEV rules MUST have been set for it #
 # before calling this routine. Optionally, reset the device. #
-PROC open_dm3k = (STRING vid, STRING pid, BOOL reset) REF DMKKK:
+PROC open_dm3k = (BOOL reset) REF DMKKK:
 (
    REF DMKKK dev3k = HEAP DMKKK;
    PIPE p;
-   BOOL ok := open_usbtmc(vid, pid, p);
+   STRING vid_rigol = "0x1ab1";  # Fixed for all Rigol devices. #
+   STRING pid_dm3k = "0x09c4";   # DM3000 series multimeter. #
+   BOOL ok := open_usbtmc(vid_rigol, pid_dm3k, p);
 
    # Start off in DCV with auto-ranging on all functions. Should be correct after a reset. #
    dev3k := (p, ok, k_dcv, (k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto,k_auto));
@@ -482,9 +484,9 @@ PROC measure_dm3k = (REF DMKKK dev3k, REF REAL value, REF BOOL overload) BOOL:
 # TESTS. #
 # ------ #
 
-IF TRUE
+IF FALSE
 THEN
-REF DMKKK dev := open_dm3k("0x1ab1", "0x09c4", TRUE);
+REF DMKKK dev := open_dm3k(TRUE);
 (DEV_INVALID dev | put(stand error, ("Open failed.", new line)); stop);
 
 REAL value := 0.0;

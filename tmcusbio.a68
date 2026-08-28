@@ -17,9 +17,15 @@ So, we are now trying a libusb based solution. Since libusb works almost entirel
 space, working around defects (whatever their cause) is a lot more feasible than with the
 kernel based USBTMC implementation.
 
-As with the serialio.a68 code, we launch the C++ based helper program which uses libusb
+As with the serialio.a68 code, we launch a C++ based helper program which uses libusb
 to communicate with devices. We talk to that program with a PIPE -- the helper just reads
 from stdin and writes to stdout.
+
+***********
+Note: It turned out that the errors noted above were caused by USB hardware. They persist
+in the libusb based version. The cure is to *power down* the host computer and restart it.
+Powering down is essential. Restarting without power down is insufficient.
+***********
 
 COMMENT
 
@@ -91,6 +97,7 @@ PROC query_usbtmc = (PIPE p, STRING s, REF STRING result) INT:
 (
    INT retval := 0;
    STRING response;
+   result := "";
    put(write OF p, ("Q"+s, new line));
    get(read OF p, (response, new line));
    CO put(stand error, ("[",response,"]",new line)); CO
@@ -98,6 +105,21 @@ PROC query_usbtmc = (PIPE p, STRING s, REF STRING result) INT:
          put(stand error, ("query_usbtmc() error: [",response[2:],"]",new line));
          retval := 1 |
             result := response[2:]
+   );
+   retval
+);
+
+# Set the timeout period in milliseconds for USBTMC transfers. #
+PROC set_timeout_usbtmc = (PIPE p, INT timeout) INT:
+(
+   INT retval := 0;
+   STRING response;
+   put(write OF p, ("T"+wint(clamp_int(timeout,50,100 000)), new line));
+   get(read OF p, (response, new line));
+   CO put(stand error, ("[",response,"]",new line)); CO
+   (response /= "*ok" |
+         put(stand error, ("set_timeout_usbtmc() error: [",response[2:],"]",new line));
+         retval := 1
    );
    retval
 );

@@ -1,3 +1,4 @@
+
 COMMENT
 usbtmc.a68 - Perform basic i/o to a USBTMC device on Linux (for instrument control).
 ====================================================================================
@@ -31,6 +32,18 @@ test program that uses the Linux kernel USBTMC driver. Eventually, there are
 since upgrading from a 5.10 to a 6.1 kernel ... It seems there are many reports
 of USBTMC issues out there, in fact. It may be that this will have to be replaced by
 a user space libusb based version ... sigh ...
+
+***************************
+* EVEN MORE UNFORTUNATELY *
+***************************
+
+After a significant effort to move to a libusb based alternative ... it turned out that
+could do exactly the same wrong things as the usbtmc version did! The 'cure' for this
+ended up being *powering down* the host computer and restarting it. I suppose the fact that
+usbtmc worked perfectly for a long time before going wrong (without anything really changing)
+was a clue, but I tend to assume the hardware 'just works'. In this case, the hardware is a
+rather complicated 'network' of hubs and what-have-you, no doubt with significant internal
+firmware components ... and it *does not* always work reliably, it seems.
 
 Nick Glazzard 2026
 ------------------
