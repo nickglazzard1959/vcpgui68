@@ -470,7 +470,8 @@ PROC measure_dm3k = (REF DMKKK dev3k, REF REAL value, REF BOOL overload) BOOL:
    INT status := query_usbtmc(dev, cmd, stvalue);
 
    # Convert the string measurement to a real number. Test for OVERLOAD. #
-   (status /= 0 | done);
+   (status = 1 | done);  # All real errors. #
+   (status = 2 | overload := TRUE; retval := TRUE; done); # Treat timeouts as overload, but not fatal. #
    (NOT string_to_real(stvalue, value, FALSE) | done ); 
    overload := (ABS(value) > 8E15); # Overload seems to be signalled by 9E15. #
    retval := TRUE;

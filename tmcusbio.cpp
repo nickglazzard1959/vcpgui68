@@ -526,8 +526,10 @@ int main( int ArgCount, char **Args )
     return 1;
   }
 
-  //quick_test();
-  //return 0;
+#if 0
+  quick_test();
+  return 0;
+#endif
   
   // Open the device.
   fprintf(stderr, "TMCUSBIO, opening VID = 0x%04x, PID = 0x%04x\n", vid, pid);
@@ -551,6 +553,7 @@ int main( int ArgCount, char **Args )
 
     // Decode command (first character of incmd).
     switch( incmd[0] ){
+
     case 'P': // put
       if( dev.put_only(incmd+1) == LIBUSB_SUCCESS )
         printf("*ok\n");

@@ -12,7 +12,7 @@ Includes:
 - Functions for splitting filenames and paths (getting extensions, base name, etc.)
 - Functions for reading and writing 1D and 2D arrays (row and row,row) of REALs to/from files.
 - Some other simple array functions.
-- Some aids to handl      `ing errors.
+- Some aids to handling errors.
 
 Nick Glazzard 2026
 ------------------
@@ -473,6 +473,30 @@ PROC string_to_int = (STRING s) INT:
    (ls[1] = "+" | ls := ls[2:]);
    (all_digits(ls) | gets(ls, (retval)));
    sign * retval
+);
+
+# Convert a hex digit to an INT. Return -1 for illegal characters. #
+PROC hex_char_to_int = (CHAR c) INT:
+(
+   INT retval := -1;
+   (NOT is xdigit(c) | done);
+   INT cval := ABS c;
+   (cval < 58  | retval := cval - 48; done);       # 0 to 9 #
+   (cval < 71  | retval := cval - 65 + 10; done);  # A to F #
+   (cval < 103 | retval := cval - 97 + 10; done);  # a to f #
+   done:
+   retval
+);
+
+# Convert an array of INTs to a string. Aid to parsing binary data. #
+PROC int_array_to_string = ([]INT array) STRING:
+(
+   STRING s := "";
+   FOR i TO ELEMS array
+   DO
+      (array[i] > 0 AND array[i] < 256 | s +:= REPR array[i])
+   OD;
+   s
 );
 
 # Another string to integer routine. Start at s[b], return v, increment p. #

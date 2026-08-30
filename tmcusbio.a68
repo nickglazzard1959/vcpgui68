@@ -56,6 +56,8 @@ PROC open_usbtmc = (STRING vid, STRING pid, REF PIPE usbp) BOOL:
       done
    FI;
    usbp := usb_pipe;
+   
+   # Everything worked (apparently). #
    retval := TRUE;
 
    done:
@@ -93,6 +95,8 @@ PROC put_usbtmc = (PIPE p, STRING s) INT:
 );
 
 # Send a string to a USBTMC device and get a response string. #
+# Return 0 unless there is an error. Distinguish between timeouts and other errors. #
+# Return 2 for timeouts and 1 for all other errors. #
 PROC query_usbtmc = (PIPE p, STRING s, REF STRING result) INT:
 (
    INT retval := 0;
@@ -103,10 +107,80 @@ PROC query_usbtmc = (PIPE p, STRING s, REF STRING result) INT:
    CO put(stand error, ("[",response,"]",new line)); CO
    (response[1] = "?" |
          put(stand error, ("query_usbtmc() error: [",response[2:],"]",new line));
-         retval := 1 |
+         (response[2:] = "LIBUSB_ERROR_TIMEOUT" |
+               retval := 2 |
+                  retval := 1
+         ) |
             result := response[2:]
    );
    retval
+);
+
+# Send a string to a USBTMC device and get a binary response. #
+# Return 0 if OK, 2 for timeouts and 1 for all other errors. #
+PROC query_binary_usbtmc = (PIPE p, STRING s, REF INT retval) []INT:
+(
+   retval := 0;
+   STRING string_response;
+   FLEX [1:0] INT return;
+
+   PROC empty_ret = VOID:
+   (
+      [1]INT result;
+      result[1] := 0;
+      return := result;
+      (string_response[2:] = "LIBUSB_ERROR_TIMEOUT" |
+            retval := 2 |
+               retval := 1
+      )
+   );
+
+   put(write OF p, ("B"+s, new line));
+   get(read OF p, (string_response, new line));
+
+   # Give up if we get an error response or the response is impossibly short. #
+   ((string_response[1] = "?") OR (ELEMS string_response < 5) |
+         put(stand error, ("query_binary_usbtmc() error: [",string_response[2:],"]",new line));
+         empty_ret;
+         done
+   );
+
+   # Get the expected byte count. Define the result array. #
+   INT n_bytes := string_to_int(string_response[5:]);
+   (n_bytes = 0 |
+         put(stand error, ("query_binary_usbtmc(): zero byte count!",new line));
+         empty_ret;
+         done
+   );
+   [n_bytes]INT result;
+
+   # Calculate the expected number of data lines and read them. #
+   INT n_lines := ((n_bytes - 1) % 40) + 1;
+   INT bytes_left := n_bytes;
+   INT bytes_done := 1;
+   FOR i TO n_lines
+   DO
+      get(read OF p, (string_response, new line));
+
+      # Convert pairs of hexadecimal characters in the line to (unsigned) INTs. #
+      INT line_bytes = (ELEMS string_response) % 2;
+      INT k := 1;
+      FOR j TO line_bytes
+      DO
+         result[bytes_done] := 16 * hex_char_to_int(string_response[k]) + 
+                               hex_char_to_int(string_response[k+1]);
+         k +:= 2;
+         bytes_done +:= 1;
+         bytes_left -:= 1;
+         (bytes_left = 0 |
+               return := result;
+               done
+         )
+      OD
+   OD;
+
+   done:
+   return
 );
 
 # Set the timeout period in milliseconds for USBTMC transfers. #
@@ -143,6 +217,11 @@ print((result,newline));
 
 print(("query_usbtmc() ", query_usbtmc(usb, ":MEAS:VOLT:AC?", result), newline));
 print((result,newline));
+
+INT retval;
+FLEX [1:0]INT binary := query_binary_usbtmc(usb, ":MEAS:VOLT:AC?", retval);
+print((binary,newline));
+print(("Translated binary to ASCII: ", int_array_to_string(binary), new line));
 
 print(("close_usbtmc() ", close_usbtmc(usb), newline))
 
