@@ -9,8 +9,8 @@ The initial state matches the AFG configuration when it is initialised
 always keeps amplitude in RMS (sine) volts and converts to and from 
 that as needed for display and new value entry purposes.
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR read "utility.a68" PR

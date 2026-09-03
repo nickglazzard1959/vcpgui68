@@ -8,8 +8,8 @@ voltages. Specifying an output amplitude then is reduced to searching for the ne
 available output value in this table and setting the range, attenuation and gain mode to
 get that value.
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR heap=256M PR 

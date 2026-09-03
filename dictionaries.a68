@@ -25,8 +25,8 @@ https://rosettacode.org/wiki/Associative_array/Iteration#ALGOL_68
 This file also contains implementations of some other basic data structures.
 Currently lists of strings.
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR read "utility.a68" PR

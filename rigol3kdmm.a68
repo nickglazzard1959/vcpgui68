@@ -12,8 +12,8 @@ seems very similar, so it might be easy to adapt this to work with Agilent
 devices. The Fluke set seems quite different, though.
 
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR read "tmcusbio.a68" PR

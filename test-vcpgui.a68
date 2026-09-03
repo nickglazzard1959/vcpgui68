@@ -2,8 +2,8 @@ COMMENT
 test-vcpgui.a68 - Test program for vcpgui and related code.
 ===========================================================
 
-Nick Glazzard 2026.
--------------------
+Author: Nick Glazzard 2026.
+---------------------------
 COMMENT
 
 PR heap=128M PR 

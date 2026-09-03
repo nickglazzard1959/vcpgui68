@@ -14,12 +14,18 @@ THEN
    stop
 FI;
 
-STRING again := config_get_string_value(cp, "again", "nuts"); # Basic string #
-STRING a := config_get_string_value(cp, "a", "nuts");  # Type error here, a is an INT in test.ini #
-INT anint := config_get_int_value(cp, "anint", -1234); # Integer #
-REAL afloat := config_get_real_value(cp, "afloat", 2.718); # Float/Real #
-STRING ml := config_get_string_value(cp, "tablea1.ml", "coffee"); # Multi-line string #
-FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2)); # 1D array of REALs #
+ # Basic string #
+STRING again := config_get_string_value(cp, "again", "nuts");
+# Type error here, a is an INT in test.ini #
+STRING a := config_get_string_value(cp, "a", "nuts");  
+# Integer #
+INT anint := config_get_int_value(cp, "anint", -1234); 
+# Float/Real #
+REAL afloat := config_get_real_value(cp, "afloat", 2.718);
+ # Multi-line string #
+STRING ml := config_get_string_value(cp, "tablea1.ml", "coffee");
+# 1D array of REALs #
+FLEX [1:0] REAL ra := config_get_real_array(cp, "array", LOC [2]REAL := (-1,-2));
 ```
 
 Beyond the straightforward use of getting settings from a configuration file, the key-value pairs can
@@ -28,8 +34,8 @@ be grouped into 'tables' and those tables can be used pretty much as separate 'd
 or array-of-real values. Key-value pairs and tables can be added to a CONFIG_PARSE object without
 referencing a file at all, which may sometimes be useful.
 
-Nick Glazzard 2026.
--------------------
+Author: Nick Glazzard 2026.
+---------------------------
 COMMENT
 
 PR read "dictionaries.a68" PR

@@ -6,7 +6,7 @@ This communicates with a device using the USBTMC protocol via the tmcusbio.cpp h
 program.
 
 Originally, this was handled by usbtmc.a68 via the kernel USBTMC driver in Linux.
-This makes devices accessible as /dev/usbtmc<N>. Unfortunately, this did not work
+This makes devices accessible as `/dev/usbtmc<N>`. Unfortunately, this did not work
 perfectly reliably. It *could* perform thousands of queries without error, then fail,
 or fail almost immediately. Even more unfortunately, upgrading from a 5.10 Linux kernel
 to a 6.0 kernel made things significantly *worse*. Life is too short to try to work
@@ -18,14 +18,16 @@ space, working around defects (whatever their cause) is a lot more feasible than
 kernel based USBTMC implementation.
 
 As with the serialio.a68 code, we launch a C++ based helper program which uses libusb
-to communicate with devices. We talk to that program with a PIPE -- the helper just reads
+to communicate with devices. We talk to that program with a `PIPE` -- the helper just reads
 from stdin and writes to stdout.
 
-***********
+___
+
 Note: It turned out that the errors noted above were caused by USB hardware. They persist
 in the libusb based version. The cure is to *power down* the host computer and restart it.
 Powering down is essential. Restarting without power down is insufficient.
-***********
+
+___
 
 COMMENT
 

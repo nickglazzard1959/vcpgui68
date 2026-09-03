@@ -10,8 +10,8 @@ Commands are short strings (1 character, in fact) followed by a numeric argument
 a . or a string argument terminated by ]. Each command gets a 1 character response: * if OK
 or ? if the command was not understood.
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR read "serialio.a68" PR

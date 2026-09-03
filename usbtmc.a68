@@ -45,8 +45,8 @@ was a clue, but I tend to assume the hardware 'just works'. In this case, the ha
 rather complicated 'network' of hubs and what-have-you, no doubt with significant internal
 firmware components ... and it *does not* always work reliably, it seems.
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR read "utility.a68" PR

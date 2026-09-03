@@ -26,7 +26,9 @@ Any number of positional arguments can also be supplied. These must be
 treated as strings, of course. The number of supplied positional arguments
 can be retrieved with arg_get_n_positionals() (after parse_args() has run),
 and each postional arg can be retrieved by its positional index with
-arg_get_positional_n().
+arg_get_positional_n(). You can add descriptions for positional arguments
+which will appear in help output. If you do add descriptions, the number
+of supplied positionals must match the number of descriptions.
 
 See the TESTS section at the bottom of the file for a usage example.
 
@@ -50,16 +52,30 @@ Some test cases, for example:
   a68g arg_parser.a68 -- -f -t Yikes "Hello Kitty!" -i -78 "*.a68" -r -1.5e7  # OK. All real number fmts should work. #
 ```
 
-Nick Glazzard 2026.
--------------------
+Author: Nick Glazzard 2026.
+---------------------------
 COMMENT
 
 PR read "utility.a68" PR
 
+# Union of acceptable value types. # 
 MODE ARG_VALUE = UNION(REF STRING, REF INT, REF BOOL, REF REAL);
-MODE ARG_OPTION = STRUCT(STRING short, STRING long, REF ARG_VALUE avalue, BOOL is_flag, STRING desc);
-MODE ARG_PARSE = STRUCT(FLEX [1:0] REF ARG_OPTION options, STRING app_desc, STRING long_desc,
-                       FLEX [1:0] STRING positionals);
+
+# Option data. #
+MODE ARG_OPTION = STRUCT(STRING short,         # Single character option name. #
+                         STRING long,          # Multi-character option name. #
+                         REF ARG_VALUE avalue, # Value given for option. #
+                         BOOL is_flag,         # Option is a flag and has no following value. #
+                         STRING desc           # Description of option for help. #
+                        );
+
+# Description of all available options and the application. #
+MODE ARG_PARSE = STRUCT(FLEX [1:0] REF ARG_OPTION options, # Option definitions. #
+                        STRING app_desc,                   # Short, one line app description. #
+                        STRING long_desc,                  # Long description of application. #
+                        FLEX [1:0] STRING positionals,     # Supplied postional arguments. #
+                        FLEX [1:0] STRING positional_descs # Positional argument descriptions. #
+                       ); 
 
 # Make an argument parser. #
 PROC make_arg_parser = (STRING app_desc) REF ARG_PARSE:
@@ -93,6 +109,15 @@ PROC arg_add_positional = (REF ARG_PARSE arg_parser, STRING posarg) VOID:
    temp[: UPB (positionals OF arg_parser)] := positionals OF arg_parser;
    positionals OF arg_parser := temp;
    (positionals OF arg_parser)[UPB (positionals OF arg_parser)] := posarg
+);
+
+# Add a positional argument description. #
+PROC arg_add_positional_description = (REF ARG_PARSE arg_parser, STRING posarg_desc) VOID:
+(
+   [UPB (positional_descs OF arg_parser) + 1] STRING temp;
+   temp[: UPB (positional_descs OF arg_parser)] := positional_descs OF arg_parser;
+   positional_descs OF arg_parser := temp;
+   (positional_descs OF arg_parser)[UPB (positional_descs OF arg_parser)] := posarg_desc
 );
 
 # Add an option for an integer argument. E.g. -i, --intopt, "An integer option", 999 #
@@ -249,6 +274,17 @@ PROC parse_args = (REF ARG_PARSE arg_parser) BOOL:
       cur_arg +:= 1
    OD; # loop over supplied arguments. #
 
+   # The number of supplied positional arguments should now match the number of positional descriptions #
+   IF (ELEMS (positional_descs OF arg_parser) > 0) AND NOT do_help
+   THEN
+      IF ELEMS (positional_descs OF arg_parser) /= ELEMS (positionals OF arg_parser)
+      THEN
+         put(stand error, ("Number of supplied positional arguments does not match the number described.", new line));
+         ok := FALSE;
+         fail
+      FI
+   FI;
+
    # If help has been requested, output it and exit. #
    IF do_help
    THEN
@@ -277,6 +313,17 @@ PROC parse_args = (REF ARG_PARSE arg_parser) BOOL:
          print((newline))
       OD;
       print((newline));
+
+      IF ELEMS (positional_descs OF arg_parser) > 0
+      THEN
+         print(("Positional arguments:", newline));
+         FOR i TO ELEMS (positional_descs OF arg_parser)
+         DO
+            print((wint(i), ": ", (positional_descs OF arg_parser)[i], newline))
+         OD;
+         print((newline))
+      FI;
+
       stop
    FI;
 

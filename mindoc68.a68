@@ -9,7 +9,7 @@ It is *assumed* that:
 
 1. The purpose of the file is described in a <long comment> to <long comment> block starting in line 1.
 2. The purpose and how to use a PROC or OP is described by comment lines with *hashes*
-   immediately *before* the PROC or OP definition. No blank line before the PROC/OP.
+   immediately *before* the PROC or OP definition. No blank line between the comment and the PROC/OP.
    No blank lines in the description comments.
 3. Sections of related functions in the code begin with a single line hash comment followed
    and preceded by # --- # or # === # lines (spaces and number of -/= do not matter). These
@@ -19,6 +19,9 @@ I toyed with automatic detection of items that should be treated as code and so 
 but it didn't work very well ... It is probably best to just use Markdown in comments
 if desired. That should be safe. There are too many exceptions and oddities for simple
 automatic schemes to work, it seems.
+
+Author: Nick Glazzard 2026.
+---------------------------
 COMMENT
 
 PR read "utility.a68" PR
@@ -26,10 +29,12 @@ PR read "dictionaries.a68" PR
 PR read "arg_parser.a68" PR
 PR read "config_parser.a68" PR
 
-CHAR hash = REPR 35; # Hash - avoids Emacs A68 syntax hinting going mad. #
+CHAR hash = REPR 35; # Hash - avoids Emacs A68 syntax highlighting going mad. #
+CHAR dquote = REPR 34; # Double quote. #
 STRING hash_string = STRING(hash);
 STRING code_fence = 3 * "`"; 
 STRING rule = 3 * "-";
+INT line_break = 70;
 
 # Globals to hold total of lines and lines of code statistics. #
 INT global_lines := 0;
@@ -39,12 +44,34 @@ INT global_ops := 0;
 
 # Format a formal declarations and return mode (procop) followed by #
 # a description of that PROC or OP. #
-PROC format_procop = (REF STRING_LIST comments, STRING procop, REF FILE fout) VOID:
+PROC format_procop = (REF STRING_LIST comments, STRING procop, REF FILE fout, BOOL to_pdf) VOID:
 (
+   # Split procop into space separated words. #
+   FLEX [1:0]STRING words := split_string(procop, " ");
+
    # Output the function definition. #
-   put(fout, (new line, code_fence, new line,
-              procop, new line,
-              code_fence, new line));
+   IF NOT to_pdf
+   THEN
+      # Outputting HTML eventually. Do NOT split long lines in function defn. #
+      put(fout, (new line, code_fence, new line,
+                 procop, new line,
+                 code_fence, new line))
+   ELSE
+      # Outputting PDF eventually. DO split long lines in function defn. #
+      put(fout, (new line, code_fence, new line));
+      INT line_length := 0;
+      FOR i TO ELEMS words
+      DO
+         put(fout, (words[i]," "));
+         line_length +:= ELEMS words[i] + 1;
+         (line_length > line_break |
+               put(fout, (newline)); 
+               line_length := 0
+         )
+      OD;
+      (line_length > 0 | put(fout, (newline)));
+      put(fout, (new line, code_fence, new line))
+   FI;
 
    # Output the comments describing the function. #
    REF STRING_LIST_ELEMENT list_line := FIRST comments;
@@ -71,9 +98,18 @@ PROC format_section = (STRING section, REF FILE fout) VOID:
    put(fout, (new line, hash, " ", trim(strip_char(section, hash)), new line))
 );
 
-# Format introductory comments for the whole file. #
-PROC format_intro = (REF STRING_LIST intro, REF FILE fout) VOID:
+# Output a Markdown section heading in code typography. #
+PROC format_section_code = (STRING section, REF FILE fout) VOID:
 (
+   put(fout, (new line, hash, " ", "`", trim(strip_char(section, hash)), "`", new line))
+);
+
+# Format introductory comments for the whole file. #
+PROC format_intro = (REF STRING_LIST intro, REF FILE fout, BOOL to_pdf) VOID:
+(
+   BOOL in_code_block := FALSE;
+   STRING spacer := 3*".";
+
    # Strip out strings that can be misinterpeted in Markdown. #
    REF STRING_LIST_ELEMENT list_line := FIRST intro;
    WHILE list_line ISNT nil_sle
@@ -81,9 +117,13 @@ PROC format_intro = (REF STRING_LIST intro, REF FILE fout) VOID:
       STRING output_line := trim(value OF list_line);
       BOOL ignore1 := (ELEMS output_line > 3 | (output_line[:3] = "---" | TRUE | FALSE) | FALSE);
       BOOL ignore2 := (ELEMS output_line > 3 | (output_line[:3] = "===" | TRUE | FALSE) | FALSE);
-      BOOL ignore := ignore1 OR ignore2;
+      BOOL ignore3 := (ELEMS output_line > 8 |
+                            (string in string("Author:", NIL, output_line) | TRUE | FALSE) | FALSE);
+      BOOL ignore := ignore1 OR ignore2 OR ignore3;
       IF NOT ignore
       THEN
+
+         # Deal specially with URLs. #
          INT hypgo;
          BOOL has_link := string in string("http://", hypgo, output_line);
          (NOT has_link | has_link := string in string("https://", hypgo, output_line));
@@ -93,11 +133,31 @@ PROC format_intro = (REF STRING_LIST intro, REF FILE fout) VOID:
             STRING urlbit := output_line[hypgo:];
             INT hypend;
             (NOT char in string(" ", hypend, urlbit) | hypend := ELEMS urlbit);
-            put(fout, ("[", urlbit[:min2int(hypend,70)], "](", urlbit[:hypend], ")", new line))
+            put(fout, ("[", urlbit[:min2int(hypend,line_break)], "](", urlbit[:hypend], ")", new line))
+
          ELSE
-            put(fout, (output_line, new line))
+            # Not a URL. Split long lines in code blocks only. But only for PDF output. #
+            (begins_with(output_line, code_fence) | in_code_block := NOT in_code_block);
+            IF in_code_block AND to_pdf
+            THEN
+               FLEX [1:0]STRING words := split_string(output_line, " ");
+               INT line_length := 0;
+               FOR i TO ELEMS words
+               DO
+                  put(fout, (words[i]," "));
+                  line_length +:= ELEMS words[i] + 1;
+                  (line_length > line_break |
+                     put(fout, (newline, spacer)); 
+                     line_length := 0
+                  )
+               OD;
+               (line_length > 0 | put(fout, (newline)))
+            ELSE
+               put(fout, (output_line, new line))
+            FI
          FI
       FI;
+
       list_line := NEXT intro
    OD;
 
@@ -106,7 +166,7 @@ PROC format_intro = (REF STRING_LIST intro, REF FILE fout) VOID:
 );
 
 # Process a single source file. #
-PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
+PROC process_source_file = (STRING source_file, REF FILE fout, BOOL to_pdf) VOID:
 (
    # Open the source file. #
    FILE fin;
@@ -115,8 +175,8 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
          print_os_error("Cannot open source file", status); 
          stop);
 
-   # Output a section header for the file. #
-   format_section(source_file, fout);
+   # Output a section header for the file. As a file name, should be in code font. #
+   format_section_code(source_file, fout);
 
    # Read the file. Identify PROC and OP specifically. #
    # Also an initial COMMENT block as an introduction. #
@@ -153,7 +213,7 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
       IF top_comment
       THEN
          (line_no /= 1 AND input_line = "COMMENT" |
-               format_intro(intro, fout);
+               format_intro(intro, fout, to_pdf);
                top_comment := FALSE |
                   (line_no /= 1 | intro +:= input_line)
          )
@@ -164,7 +224,7 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
       THEN
          multi_procop_def +:= (" " + input_line);
          (ends_with(input_line, ":") |
-               format_procop(accum, multi_procop_def, fout);
+               format_procop(accum, multi_procop_def, fout, to_pdf);
                VOID(CLEAR accum);
                multi_procop_def := "";
                multi_procop := FALSE)
@@ -203,7 +263,7 @@ PROC process_source_file = (STRING source_file, REF FILE fout) VOID:
          THEN
             multi_procop := NOT ends_with(input_line, ":");
             (NOT multi_procop |
-                  format_procop(accum, input_line, fout);
+                  format_procop(accum, input_line, fout, to_pdf);
                   VOID(CLEAR accum) |
                      multi_procop_def := input_line
             );
@@ -251,6 +311,11 @@ from Algol 68 programs in files with .a68 extensions. A set of input files for\n
 a project can be specified in a .ini configuration file, or a single file can\n\
 be supplied. The output is always Markdown, with either HTML or PDF as an additional\n\
 output. The latter formats require that Pandoc is installed, and also LaTeX for PDF.");
+REF STRING doc_title := arg_add_string_option(arg_parser, "-t", "--title", "Document title", "");
+REF STRING doc_author := arg_add_string_option(arg_parser, "-a", "--author", "Name of author", "Mindoc68");
+REF STRING doc_width := arg_add_string_option(arg_parser, "-w", "--width", "HTML document width", "");
+arg_add_positional_description(arg_parser, "Input .a68 file or .ini listing a set of .a68 files.");
+arg_add_positional_description(arg_parser, "Output file with extension .md, .html or .pdf.");
 ( NOT parse_args(arg_parser) |
       put(stand error, ("Unknown or malformed command line arguments.", new line)); 
       stop );
@@ -270,6 +335,7 @@ print(("Output file: ", output_file, new line));
 # has the extension .html or .pdf, those formats are generated from the Markdown #
 # Pandoc (which must be installed for this, of course). #
 STRINGPAIR output_stem_ext := splitext(output_file);
+BOOL output_is_pdf := last OF output_stem_ext = ".pdf";
 
 # If the source file has .ini extension, it should be a config file. Read it for file names. #
 # The files to be processed should then be defined by a multi-line string with key 'files'. #
@@ -303,6 +369,34 @@ INT status := open_file(first OF output_stem_ext + ".md", "w", fout);
       print_os_error("Cannot create output file", status); 
       stop);
 
+# If there is a document title, output some YAML to make that appear. #
+IF doc_title /= ""
+THEN
+   [8]INT ymdhms := local time;
+   put(fout, ("---", new line));
+   put(fout, ("title: ", dquote, doc_title, dquote, new line));
+   put(fout, ("author: ", dquote, doc_author, dquote, new line));
+   put(fout, ("date: ", dquote, wint(ymdhms[1]),"-",wint(ymdhms[2]),"-",wint(ymdhms[3]), dquote, newline));
+
+   # If we are going to PDF (via LaTeX), try to fix section numbers overlapping their names. #
+   # Warning: This YAML is *very* white space sensitive. #
+   IF output_is_pdf
+   THEN
+      put(fout, ("header-includes:", new line));
+      put(fout, (" - |", new line));
+      put(fout, ("   \usepackage{a4wide}", new line));
+      put(fout, ("   \usepackage{tocloft}", new line));
+      put(fout, ("   \setlength{\cftsecnumwidth}{2.0em}", new line));
+      put(fout, ("   \setlength{\cftsubsecnumwidth}{2.5em}", new line));
+      put(fout, ("   \setlength{\cftsubsubsecnumwidth}{3.0em}", new line));
+      put(fout, ("   \usepackage[scaled]{helvet}", new line));
+      put(fout, ("   \renewcommand*\familydefault{\sfdefault}", new line))
+   ELSE
+      (doc_width /= "" | put(fout, ("maxwidth: ", doc_width, new line)))
+   FI;
+   put(fout, ("---", new line, new line))
+FI;
+
 # Process the source files. #
 FOR i TO ELEMS source_files
 DO
@@ -310,20 +404,28 @@ DO
    STRINGPAIR this_source_stem_ext := splitext(source_files[i]);
    IF last OF this_source_stem_ext = ".a68"
    THEN
-      process_source_file(source_files[i], fout)
+      process_source_file(source_files[i], fout, output_is_pdf)
    ELSE
       (NOT copy_file_contents(source_files[i], fout, FALSE) |
             put(stand error, ("... Failed to read: ", source_files[i], new line)))
    FI
 OD;
 
+# Write global statistics to the output file. #
+put(fout, (new line, REPR 35, " Global Statistics", new line));
+put(fout, (3 * "`", new line));
+put(fout, ("  Global PROC declarations: ", wint(global_procs), new line));
+put(fout, ("    Global OP declarations: ", wint(global_ops), new line));
+put(fout, ("        Global total lines: ", wint(global_lines), new line));
+put(fout, ("Global total lines of code: ", wint(global_loc), new line));
+put(fout, (3 * "`", new line));
+
 # Close the output file. #
 close(fout);
 put(stand out, ("Wrote: ", first OF output_stem_ext + ".md", new line));
 
 # Optionally post-process the generated Markdown to other formats with Pandoc. #
-BOOL post_process := (last OF output_stem_ext = ".pdf") OR 
-                     (last OF output_stem_ext = ".html");
+BOOL post_process := output_is_pdf OR (last OF output_stem_ext = ".html");
 IF post_process
 THEN
    STRING cmd_output;

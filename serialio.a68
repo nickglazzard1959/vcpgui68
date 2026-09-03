@@ -6,8 +6,8 @@ There is no way to configure serial devices directly from a68g, but this is fair
 work around using a helper program written in C++, then communicating with that helper program
 using pipes.
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR read "utility.a68" PR

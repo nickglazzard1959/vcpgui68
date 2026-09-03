@@ -113,8 +113,8 @@ so it depends where you choose to draw lines to some extent. All Algol 68 code
 written in conjunction with VCPGUI (to 'include more batteries') is less than
 7500 lines (a bit over 5000 LOC).
 
-Nick Glazzard 2026.
--------------------
+Author: Nick Glazzard 2026.
+---------------------------
 COMMENT
 
 PR read "utility.a68" PR
@@ -216,7 +216,7 @@ PROC read_dsurf = ( PIPE p ) STRING:
 );
 
 # ======================== #
-# DSURF DRAWING PRIMITIVES #
+# DSURF Drawing Primitives #
 # ======================== #
 
 COMMENT
@@ -537,7 +537,7 @@ PROC ds_config_set_click_audio = ( STRING filename ) VOID:
 
 
 # ============== #
-#  TINY UI CODE  #
+#  Tiny UI code  #
 # ============== #
 
 # User procedure ('callback') definition. #
@@ -620,7 +620,7 @@ Notes: add_XXX is called from "user code" to add a component.
 COMMENT
 
 # ------------------ #
-# STANDARD USERPROCs #
+# Standard USERPROCs #
 # ------------------ #
 
 #  Do nothing. #
@@ -646,7 +646,7 @@ PROC quit_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 );
 
 # ----------- #
-# PUSH BUTTON #
+# Push button #
 # ----------- #
 
 # Read layout data for a push button from a texture atlas file. #
@@ -714,7 +714,7 @@ PROC set_pushbutton = (PIPE p, STRING tag, BOOL callproc) VOID:
 );
 
 # ------------- #
-# TOGGLE BUTTON #
+# Toggle button #
 # ------------- #
 
 # Read layout data for a toggle button from a texture atlas file. #
@@ -799,7 +799,7 @@ PROC set_togglebutton = (PIPE p, STRING tag, BOOL on_or_off, BOOL callproc) VOID
 );
 
 # ------------ #
-# RADIO BUTTON #
+# Radio button #
 # ------------ #
 
 # Read layout data for a radio button from a texture atlas file. #
@@ -1027,7 +1027,7 @@ PROC get_radiobutton_x_boundaries = (STRING tag) []INT:
 
 
 # --------------- #
-# NUMERIC DISPLAY #
+# Numeric display #
 # --------------- #
 
 # Read layout data for a numeric display from a texture atlas file. #
@@ -1352,7 +1352,7 @@ PROC set_numericdisplay_warn = (PIPE p, STRING tag, BOOL warn) VOID:
 
 
 # ---- #
-# KNOB #
+# Knob #
 # ---- #
 
 # Read layout data for a knob from a texture atlas file. #
@@ -1481,7 +1481,7 @@ PROC set_knob = (PIPE p, STRING tag, REAL vnew, BOOL callproc) VOID:
 
 
 # -------- #
-# SELECTOR #
+# Selector #
 # -------- #
 
 # Read layout data for a selector from a texture atlas file. #
@@ -1651,7 +1651,7 @@ PROC set_selector = (PIPE p, STRING tag, INT inew, BOOL callproc) VOID:
 );
 
 # ------ #
-# KEYPAD #
+# Keypad #
 # ------ #
 
 # Read layout data for a keypad from a texture atlas file. $$$ #
@@ -1827,7 +1827,7 @@ PROC set_keypad = (PIPE p, STRING tag, REAL value, INT ndp, BOOL callproc) VOID:
 
 
 # ----- #
-# TIMER #
+# Timer #
 # ----- #
 
 # Make a timer. For now, there can only be one and it must have tag 'timer'. #
@@ -1875,7 +1875,7 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 
 
 # ---- #
-# LAMP #
+# Lamp #
 # ---- #
 
 # Read layout data for a lamp from a texture atlas file. #
@@ -1944,7 +1944,7 @@ PROC set_lamp = (PIPE p, STRING tag, BOOL state) VOID:
 
 
 # ------------ #
-# TIME DISPLAY #
+# Time display #
 # ------------ #
 
 # Read layout data for a time display from a texture atlas file. #
@@ -2116,7 +2116,7 @@ PROC set_timedisplay_hms = (PIPE p, STRING tag, HMSTIME hms) VOID:
 
 
 # =========== #
-# LAYOUT AIDS #
+# Layout aids #
 # =========== #
 
 # Distribute groups of buttons, each with a number of buttons specified in a #

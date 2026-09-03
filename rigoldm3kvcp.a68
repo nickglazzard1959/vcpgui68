@@ -10,8 +10,8 @@ The program runs under Algol 68 Genie and displays a custom GUI using SDL2.
 This software, including the GUI "library", utility code and test programs,
 comes to less than 7,500 lines of Algol 68 and C++ ... including comments ...
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR heap=256M PR

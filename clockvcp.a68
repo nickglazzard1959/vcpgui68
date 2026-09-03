@@ -5,8 +5,8 @@ clockvcp.a68 - A clock to demo some VCPGUI facilities.
 A pretty minimal example which runs without any weird hardware attached.
 Also shows some features of the config_parser functions.
 
-Nick Glazzard 2026
-------------------
+Author: Nick Glazzard 2026
+--------------------------
 COMMENT
 
 PR heap=128M PR # Needs more than default heap size. Not sure why. #
