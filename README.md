@@ -124,7 +124,7 @@ the application programs. These, and the other VCPGUI code, fall into the
 following categories.
 
 Detailed documentation on the operators and procedures defined in the "preludes",
-automatically extracted from the source code, can be found [here](doc/vcpgui.md).
+automatically extracted from the source code, can be found [here](doc/vcpdoc.md).
 
 ### VCPGUI itself.
 The VCPGUI "API" is defined in the file: `vcpgui.a68`. The procedures in there allow
