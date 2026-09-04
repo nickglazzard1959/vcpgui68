@@ -168,7 +168,9 @@ with code written in Algol 68 over pipes. The following helper programs exist:
 - TMCUSBIO (`tmcusbio.cpp`) is responsible for communicating with test and measurement devices
   over USB. As with the above "helpers", the A68 code writes what it wants to send to stdin of
   TMCUSBIO and reads responses from its stdout. TMCUSBIO is linked with libusb and implements
-  necessary parts of the TMC protocol itself. (Note: communicating reliably with USB TMC devices
+  necessary parts of the TMC protocol itself. 
+
+  > NOTE: Communicating reliably with USB TMC devices
   has been by far the most problematic part of this whole project. Initially, the Linux kernel USBTMC
   driver was used, with A68 code simply opening `/dev/usbtmc<n>` and writing to / reading from
   that. This could work without error for thousands of transactions, then, on the next open,
@@ -281,3 +283,30 @@ At present, there is one generally useful tool:
   Markdown whenever it is used, and can process this (via Pandoc) to also produce
   HTML or PDF files (the latter requires that LaTeX is also installed).
 
+## More Screenshots
+
+---
+
+![Function Generator and Multimeter, 1V RMS amplitude](images/afg-dm3k1.png "Function Generator and Multimeter, 1V RMS amplitude")
+
+---
+
+![Function Generator and Multimeter, 2.5V RMS amplitude](images/afg-dm3k2.png "Function Generator and Multimeter, 2.5V RMS amplitude")
+
+---
+
+![Function Generator and Multimeter, 12,345Hz frequency](images/afg-dm3k3.png "Function Generator and Multimeter, 12,345Hz frequency")
+
+---
+
+![Function Generator and Multimeter, 33kHz frequency](images/afg-dm3k4.png "Function Generator and Multimeter, 33kHz frequency")
+
+---
+
+![Function Generator and Multimeter, frequency and period](images/afg-dm3k5.png "Function Generator and Multimeter, frequency and period")
+
+---
+
+![Function Generator, setting a new frequency with the keypad](images/afg-dm3k7.png "Function Generator, setting a new frequency with the keypad")
+
+---
