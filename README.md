@@ -42,7 +42,7 @@ However, there were a few "reasons" to not take the "obvious" route.
 Perhaps not very good "reasons" (or proper "reasons" at all, arguably),
 but here they are:
 
-- Before retiring, I had used Python and PyQt *a lot*. Using something else
+- Before retiring, I had used Python and PyQt/PySide *a lot*. Using something else
   was appealing, just for a change.
 - I wanted a "GUI" that looked more like physical control panels than
   could easily be achieved with the usual GUI toolkits. 
@@ -177,7 +177,7 @@ with code written in Algol 68 over pipes. The following helper programs exist:
   fail. Debugging this with a C++ program revealed the same behaviour, with `EPROTO` errors
   randomly happening after a new open. To give more opportunity for workarounds, I moved to
   using the (mostly) user space libusb functionality instead. But this *also* has the same
-  problem! At first, it seemed the only "fix" for this once it happened was to power down
+  problem! At first, it seemed the only certain "fix" for this once it happened was to power down
   the host computer and start again. A slightly better alternative also turned out to work:
   restart the USB subsystem. There is a `restart_usb.sh` Bash script provided as a template
   for doing this. It would be unwise to use this if USB attached disks are in use! It might
@@ -259,6 +259,7 @@ panels for specific instruments. At present, we have:
 - `afgvcp.a68` provides a virtual control panel for the home made function
   generator. There is a `--fake` option available which allows this to run
   without actually talking to the one-off function generator instrument.
+  Detailed information on this program can be found [here](doc/afgvcp.md).
 - `rigoldm3kvcp.a68` provides a virtual control panel for Rigol DM3000 series
   digital multimeters. Most (but not all) functions of the multimeter can be
   controlled.
@@ -282,6 +283,43 @@ At present, there is one generally useful tool:
   being adhered to in the source. It is quite useful, though. The program outputs
   Markdown whenever it is used, and can process this (via Pandoc) to also produce
   HTML or PDF files (the latter requires that LaTeX is also installed).
+
+## Installation
+
+At present, all the code should be placed in a freshly made directory and executed from there.
+There are some pre-requisites that must be installed or built from source. In any
+case, a working C/C++ development enviroment is needed on the computer you are installing on.
+
+### Algol 68 Genie
+
+Algol 68 Genie is best built from source. This is very straightforward to do. A68G can be 
+found at Marcel van der Veer's website [here](https://algol68genie.nl/en/algol-68-genie/#obtain).
+Precompiled packages are also available for many systems, although some packages contain quite old
+versions.
+
+### SDL 2
+
+SDL 2 is also probably best built from source, and this is also quite straightforward to do.
+All the required downloads and build information can be found 
+[here](https://wiki.libsdl.org/SDL2/Installation). Many Linux distributions have packages
+for SDL 2, but they often contain quite old versions.
+
+### libusb 1.0 development libraries
+
+Needed to build TMCUSBIO. These are readily available for all current Linux distributions.
+For example, for Debian Linux use: `sudo apt install libusb-1.0-0-dev`.
+
+### CLI11
+
+The C++ helper programs use a C++ "header only" library called CLI11 to parse command line
+arguments in a reasonably civilised way. This can be found at the CLI11 project's Github
+page under Releases (note: you need to use a Releases download ... do not clone the project,
+as this is unnecessary and will lead to confusion ... well, it did for me). The file `CLI11.hpp`
+is all that is needed and can be downloaded from [here](https://github.com/CLIUtils/CLI11/releases).
+Put it in the directory with the rest of the VCPGUI source code.
+
+### Building the 
+
 
 ## More Screenshots
 
