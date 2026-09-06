@@ -36,7 +36,7 @@ if anyone is interested in that, I'll provide schematics and the Arduino softwar
 This program is therefore mostly useful (if at all) as an example of how to use VCPGUI
 for your own devices. 
 
-To run the program with the (unobtainable) hardware it controls, use the `--fake` flag.
+To run the program without the (unobtainable) hardware it controls, use the `--fake` flag.
 All interactions will "succeed" with no attempt to access any device.
 
 The device to communicate with is set by the `--device <n>` For example `--device 1`
@@ -59,7 +59,7 @@ under the display. This will display the current amplitude appropriately. Then p
 to set the new value (whatever you enter will be clamped to the valid range for that
 function and waveform). Note that on pressing the `NEW` key, the bezel of the numeric
 display changes to red to indicate "new data entry mode". Pressing `OLD` instead of
-`SET` will discard the entry and keep the previous value. Pressing `DEL` after a
+`SET` will discard the entry and keep the previous value. Pressing `DEL` after
 entering a digit will "backspace", removing the last entered digit. The `CHS` key
 changes the sign of the entered value. The sign will be ignored if it is not relevant.
 

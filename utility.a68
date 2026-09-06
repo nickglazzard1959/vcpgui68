@@ -131,6 +131,29 @@ PROC get_time_of_day = (BOOL utc) HMSTIME:
    make_hms(0, itime[4], itime[5], itime[6])
 );
 
+# Get hours offset from UTC for a standard format timezone continent/city string. #
+# Return TRUE and correct offset if the continent/city string is valid, else FALSE and 0 offset. #
+PROC get_utc_offset_hours = (STRING contcity, REF HMSTIME offset) BOOL:
+(
+   BOOL retval := FALSE;
+   set_hms(offset, 0, 0, 0, 0);
+
+   IF file is regular("/usr/share/zoneinfo/"+contcity)
+   THEN
+      STRING s_offset;
+      IF run_command_get_output("TZ="""+contcity+""" date +%z", s_offset)
+      THEN
+         s_offset := trim(s_offset);
+         INT h := string_to_int(s_offset[:3]); # +hh or -hh #
+         INT m := string_to_int(s_offset[4:]); # mm #
+         set_hms(offset, 0, h, m, 0);
+         retval := TRUE
+      FI
+   FI;
+
+   retval
+);
+
 # Make an HMSTIME from its components. If any component is -ve, the thing is -ve. #
 PROC make_hms = (INT d, h, m, s) HMSTIME:
 (

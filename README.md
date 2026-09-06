@@ -185,7 +185,7 @@ with code written in Algol 68 over pipes. The following helper programs exist:
   that USB TMC communications remain unreliable -- if it works after an open, it will keep
   working ... but it randomly fails to work after a new open. It isn't clear if this is a
   quirk of the host computer hardware and instruments I happen to be using or a more general
-  problem. There are many reports of similar issues out there, though.)
+  problem. There are many reports of similar issues out there, though.
 
 One benefit of having helper programs of this kind is that SerialIO and TMCUSBIO can be run
 from the command line directly and the user can simply type commands to be sent to an instrument
@@ -262,7 +262,7 @@ panels for specific instruments. At present, we have:
   Detailed information on this program can be found [here](doc/afgvcp.md).
 - `rigoldm3kvcp.a68` provides a virtual control panel for Rigol DM3000 series
   digital multimeters. Most (but not all) functions of the multimeter can be
-  controlled.
+  controlled. Information on this program can be found [here](doc/rigoldm3kvcp.md).
 
 ### A generally usable demonstration program.
 
@@ -272,6 +272,7 @@ you don't have one of the supported instruments. One of these being a unique
 
 So a demonstration program is supplied which can be used without any physical
 instrument being needed. This is a simple clock program: `clockvcp.a68`.
+Detailed information on this can be found [here](doc/clockvcp.md).
 
 ### Tools
 
