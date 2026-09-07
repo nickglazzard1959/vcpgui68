@@ -242,6 +242,7 @@ PROC clamp_int = (INT v, lo, hi) INT:
    (v < lo | lo | ((v > hi) | hi | v))
 );
 
+# Clamp integer to unsigned byte range. #
 PROC clamp_255 = (INT v) INT:
 (
    clamp_int(v, 0, 255)
@@ -253,12 +254,13 @@ PROC clamp_real = (REAL v, lo, hi) REAL:
    (v < lo | lo | ((v > hi) | hi | v))
 );
 
-# Min and max of pairs of integer values. #
+# Min of pairs of integer values. #
 PROC min2int = (INT a, b) INT:
 (
    (a < b | a | b )
 );
 
+# Max of pairs of integer values. #
 PROC max2int = (INT a, b) INT:
 (
    (a > b | a | b )
@@ -356,7 +358,7 @@ PROC trim = (STRING s) STRING:
    trim_leading( trim_trailing(s) )
 );
 
-# Change the case of a string. #
+# Change the case of a string to lower. #
 PROC string_to_lower = (STRING s) STRING:
 (
    STRING return := "";
@@ -367,6 +369,7 @@ PROC string_to_lower = (STRING s) STRING:
    return
 );
 
+# Change the case of a string to upper. #
 PROC string_to_upper = (STRING s) STRING:
 (
    STRING return := "";
@@ -404,7 +407,6 @@ PROC strip_char = (STRING s, CHAR c) STRING:
    OD;
    return 
 );
-
 
 # Check if a string is in a comma separated list of valid strings. #
 PROC check_valid = (STRING test, STRING valid) BOOL:

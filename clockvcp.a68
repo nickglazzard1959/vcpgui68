@@ -55,9 +55,16 @@ PROC lab_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
                local := FALSE;
                set_hms(delta, 0, 0, 0, 0)
             ELSE
-               INT delta_hours := config_get_int_value(cp, "cities."+selected_label, 0);
+               STRING contcity := config_get_string_value(cp, "autocities."+selected_label, "unknown");
                local := FALSE;
-               set_hms(delta, 0, delta_hours, 0, 0)
+               HMSTIME offset;
+               IF get_utc_offset_hours(contcity, offset)
+               THEN
+                  delta := offset
+               ELSE
+                  set_hms(delta, 0, 0, 0, 0);
+                  put(stand error, ("Continent/City for label ",selected_label," is invalid.", new line))
+               FI
             FI
          )
       OUT
@@ -71,16 +78,15 @@ PROC lab_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 # MAIN PROGRAM #
 # ============ #
 
-print_std_title("Simple Clock. V0.1");
+print_std_title("Simple Clock. V0.2");
 
 # Define, get and parse command line arguments. These MUST appear after --. #
 REF ARG_PARSE arg_parser := make_arg_parser("Simple Clock Program");
 arg_set_description(arg_parser,
 "This is a simple clock display program that shows some of the features\n\
 of the VCPGUI project. It can display the local time, UTC time, or the time\n\
-at one of a three cities. These can be defined in `clock-cities.ini`, along\n\
-with UTC time offsets. No attempt is made to use system timezone and DST data\n\
-as that would take too much effort from Algol 68!");
+at one of three cities. These can be defined in `clock-cities.ini`, along\n\
+with Continent/City timezone strings from which UTC time offsets are found.");
 REF BOOL ontop := arg_add_flag(arg_parser, "-o", "--ontop",
                                "Keep DSURF window on top.",
                                FALSE);
@@ -89,7 +95,8 @@ REF BOOL nodecor := arg_add_flag(arg_parser, "-n", "--noborder",
                                  FALSE);
 REF STRING audiofile := arg_add_string_option(arg_parser, "-a", "--audiofile",
                                               "Specify the name of the audio file for button clicks.",
-                                              get env("HOME") + "/.config/vcpgui68/clicky.wav");
+                                              "./dsurf.wav");
+                                              # get env("HOME") + "/.config/vcpgui68/clicky.wav");#
 ( NOT parse_args(arg_parser) |
       put(stand error, ("Unknown or malformed command line arguments.", new line)); 
       stop );
@@ -99,12 +106,12 @@ REF CONFIG_PARSE cp := make_config_parser("clock-cities.ini");
 (NOT parse_config_file(cp) | 
       put(stand error, ("Failed to parse config file. Giving up.", newline));
       stop);
-(NOT config_has_table(cp, "cities") | 
-      put(stand error, ("Expected cities table in config file. Giving up.", newline));
+(NOT config_has_table(cp, "autocities") | 
+      put(stand error, ("Expected autocities table in config file. Giving up.", newline));
       stop);
 
 STRING cities_list := "";
-FLEX [1:0] STRING city_names := config_get_keys_in_table(cp, "cities", TRUE);
+FLEX [1:0] STRING city_names := config_get_keys_in_table(cp, "autocities", TRUE);
 FOR i TO min2int(3, ELEMS city_names)
 DO
    CO print((wint(i)," ",city_names[i],newline)); CO

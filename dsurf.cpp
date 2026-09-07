@@ -1271,9 +1271,7 @@ int main (int ArgCount, char **Args)
   dstate.timer = TIMER_NOT_SET;
 
   std::string homedir(getpwuid(getuid())->pw_dir);
-  std::string click_audio = homedir + "/.config/vcpgui68/clicky.wav";
-
-  //#define MUS_PATH "/home/nick/gitprojects/vcpgui68/clicky.wav"
+  std::string click_audio = "./dsurf.wav"; //homedir + "/.config/vcpgui68/clicky.wav";
 
   // Command map.
   CMD_MAP cmdmap

@@ -287,8 +287,12 @@ At present, there is one generally useful tool:
 
 ## Installation
 
-At present, all the code should be placed in a freshly made directory and executed from there.
-There are some pre-requisites that must be installed or built from source. In any
+All the code should simply be placed in a freshly made directory and executed from there.
+This directory should also contain `dsurf.png`, `dsurf.tal` and `dsurf.wav` (used for
+button click sounds). Just cloning the VCPGUI repository will perform this "installation".
+
+There are some pre-requisites that must be installed or built from source before the C++ helper
+programs can be built. Also (obviously) Algol 68 Genie is an essential prerequisite. In any
 case, a working C/C++ development enviroment is needed on the computer you are installing on.
 
 ### Algol 68 Genie
@@ -296,7 +300,8 @@ case, a working C/C++ development enviroment is needed on the computer you are i
 Algol 68 Genie is best built from source. This is very straightforward to do. A68G can be 
 found at Marcel van der Veer's website [here](https://algol68genie.nl/en/algol-68-genie/#obtain).
 Precompiled packages are also available for many systems, although some packages contain quite old
-versions.
+versions.  It is best to build all the optional modules, as this is very easy to do, at least on
+Linux.
 
 ### SDL 2
 
@@ -315,12 +320,38 @@ For example, for Debian Linux use: `sudo apt install libusb-1.0-0-dev`.
 The C++ helper programs use a C++ "header only" library called CLI11 to parse command line
 arguments in a reasonably civilised way. This can be found at the CLI11 project's Github
 page under Releases (note: you need to use a Releases download ... do not clone the project,
-as this is unnecessary and will lead to confusion ... well, it did for me). The file `CLI11.hpp`
+as this is unnecessary and will lead to confusion ... well, it confused me). The file `CLI11.hpp`
 is all that is needed and can be downloaded from [here](https://github.com/CLIUtils/CLI11/releases).
 Put it in the directory with the rest of the VCPGUI source code.
 
-### Building the 
+### Building the helper programs
 
+There is a simple Bash script to do this.
+
+```
+./build.sh
+```
+
+should build all three C++ helper programs.
+
+### Building the prelude documentation
+
+As explained, the `mindoc68.a68` program will extract and format documentation from the
+comments in an Algol 68 source file (if certain rules are followed when the source is written).
+There is a Bash shell script which will create a new `doc/vcpdoc.md` Markdown file from the
+source code. If Pandoc is installed, it will also create `doc/vcpdoc.html`. If LaTeX is also
+installed (in addition to Pandoc), a PDF version will also be made in `doc/vcpdoc.pdf`.
+
+Pandoc installation is explained [here](https://pandoc.org/installing.html). 
+
+LaTeX can be installed on most Linux distributions using the standard OS package manager. E.g.
+
+```
+sudo apt install texlive
+```
+
+It can be installed on macOS from [here](https://www.tug.org/mactex/). The LaTeX installation
+is very large, but also very useful.
 
 ## More Screenshots
 

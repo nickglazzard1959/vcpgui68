@@ -20,9 +20,8 @@ Simple Clock Program
 
 This is a simple clock display program that shows some of the features
 of the VCPGUI project. It can display the local time, UTC time, or the time
-at one of a three cities. These can be defined in `clock-cities.ini`, along
-with UTC time offsets. No attempt is made to use system timezone and DST data
-as that would take too much effort from Algol 68!
+at one of three cities. These can be defined in `clock-cities.ini`, along
+with Continent/City timezone strings from which UTC time offsets are found.
 
 -o, --ontop, (flag) : Keep DSURF window on top.
 -n, --noborder, (flag) : Turn off window border for DSURF.

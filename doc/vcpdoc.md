@@ -1,7 +1,7 @@
 ---
 title: "VCPGUI Preludes"
 author: "Mindoc68"
-date: "2026-9-2"
+date: "2026-9-7"
 header-includes:
  - |
    \usepackage{a4wide}
@@ -1441,6 +1441,15 @@ Get the time according to the system clock as an HMSTIME. Get local time or UTC.
 ---
 
 ```
+PROC get_utc_offset_hours = (STRING contcity, REF HMSTIME offset) BOOL: 
+
+```
+Get hours offset from UTC for a standard format timezone continent/city string.
+Return TRUE and correct offset if the continent/city string is valid, else FALSE and 0 offset.
+
+---
+
+```
 PROC make_hms = (INT d, h, m, s) HMSTIME: 
 
 ```
@@ -1531,6 +1540,14 @@ Clamp integer values.
 ---
 
 ```
+PROC clamp_255 = (INT v) INT: 
+
+```
+Clamp integer to unsigned byte range.
+
+---
+
+```
 PROC clamp_real = (REAL v, lo, hi) REAL: 
 
 ```
@@ -1542,7 +1559,15 @@ Clamp real values.
 PROC min2int = (INT a, b) INT: 
 
 ```
-Min and max of pairs of integer values.
+Min of pairs of integer values.
+
+---
+
+```
+PROC max2int = (INT a, b) INT: 
+
+```
+Max of pairs of integer values.
 
 ---
 
@@ -1608,7 +1633,15 @@ Trim leading and trailing blanks from a string.
 PROC string_to_lower = (STRING s) STRING: 
 
 ```
-Change the case of a string.
+Change the case of a string to lower.
+
+---
+
+```
+PROC string_to_upper = (STRING s) STRING: 
+
+```
+Change the case of a string to upper.
 
 ---
 
@@ -2039,10 +2072,10 @@ If status FALSE, an internal error must have occurred. Abort.
 ---
 
 ## Statistics
-PROC declarations: 65\
+PROC declarations: 69\
   OP declarations: 13\
-      Total lines: 1574\
-    Lines of code: 1129\
+      Total lines: 1599\
+    Lines of code: 1147\
 
 # `vcpgui.a68`
 A somewhat specialised GUI for controlling some instruments.
@@ -3565,8 +3598,8 @@ PROC declarations: 164\
 
 # Global Statistics
 ```
-  Global PROC declarations: 317
+  Global PROC declarations: 321
     Global OP declarations: 42
-        Global total lines: 7573
-Global total lines of code: 5391
+        Global total lines: 7598
+Global total lines of code: 5409
 ```

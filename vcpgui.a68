@@ -125,7 +125,7 @@ PR read "utility.a68" PR
 
 # Some configuration. #
 STRING font_directory := "/usr/share/fonts/truetype/liberation2";
-STRING click_audio := get env("HOME") + "/.config/vcpgui68/clicky.wav";
+STRING click_audio := "./dsurf.wav"; #get env("HOME") + "/.config/vcpgui68/clicky.wav";#
 BOOL fast_update := TRUE;
 BOOL on_top := FALSE;
 BOOL no_border := FALSE;
