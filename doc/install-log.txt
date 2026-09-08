@@ -1,0 +1,283 @@
+Installing VCPGUI on Debian GNU/Linux 12 (bookworm) x86_64
+==========================================================
+
+===
+ALGOL 68 GENIE INSTALLATION
+===
+
+$ mkdir a68g
+
+$ cd a68g/
+
+$ wget https://algol68genie.nl/algol68g-3.13.3.tar.gz
+--2026-09-08 10:32:20--  https://algol68genie.nl/algol68g-3.13.3.tar.gz
+...
+Saving to: ‘algol68g-3.13.3.tar.gz’
+algol68g-3.13.3.tar.gz  100%[=======================================>] 678.11K   660KB/s    in 1.0s    
+2026-09-08 10:32:23 (660 KB/s) - ‘algol68g-3.13.3.tar.gz’ saved [694386/694386]
+
+$ tar xzf algol68g-3.13.3.tar.gz
+
+$ cd algol68g-3.13.3/
+
+$ sudo apt install libgsl-dev
+
+$ sudo apt install libplot-dev
+
+$ sudo apt install r-mathlib
+
+$ sudo apt install libgmp-dev libmpfr-dev
+
+$ sudo apt install libpq-dev
+
+$ sudo apt install libcurl4-gnutls-dev
+
+$ ./configure
+configure: 
+configure: algol68g-3.13.3
+...
+configure: 
+configure: algol68g-3.13.3 by Marcel van der Veer <algol68g@algol68genie.nl>
+configure: 
+configure: C compiler is gcc
+configure: 
+configure: Building LONG mode support in hardware
+configure: Building with parallel clause
+configure: Building with GNU MPFR
+configure: Building with R mathlib
+configure: Building with GNU Scientific Library
+configure: Building with curses
+configure: Building with GNU plotutils
+configure: Building with PostgreSQL
+configure: Building with curl
+configure: Building with readline
+configure: Building plugin compiler
+configure: 
+configure: Now enter 'make', optionally followed by 'make check'.
+configure: Enter 'make install' to install a68g for all users.
+configure: Consult the README file for more information.
+
+$ make
+make  all-am
+make[1]: Entering directory '/home/nick/a68g/algol68g-3.13.3'
+...
+8g/a68g-transput-formatted.o ./src/a68g/a68g-transput-formatting.o ./src/a68g/a68g-transput-unformatted.o -L/home/linuxbrew/.linuxbrew/Cellar/ncurses/6.5/lib -lncursesw -lcurl -lplot -lgsl -lgslcblas -lRmath -lpthread -lmpfr -lgmp -lquadmath -lrt -lpq -lreadline -lm 
+make[1]: Leaving directory '/home/nick/a68g/algol68g-3.13.3'
+
+$ make check
+make  check-TESTS
+...
+PASS: ./src/test-set/39-zeroin.a68
+===================
+All 39 tests passed
+===================
+
+$ sudo make install
+
+$ a68g --version
+Algol 68 Genie 3.13.3
+Copyright 2001-2026 Marcel van der Veer <algol68g@algol68genie.nl>.
+
+This is free software covered by the GNU General Public License.
+There is ABSOLUTELY NO WARRANTY for Algol 68 Genie;
+not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU General Public License for more details.
+
+Please report bugs to Marcel van der Veer <algol68g@algol68genie.nl>.
+
+Build level 3.2224 gcc Sep  8 2026
+With hardware support for long modes
+With plugin-compilation support
+With parallel-clause support
+With GNU libpthread version NPTL 2.36
+With PostgreSQL support
+With curl 7.88.1
+With GNU MP 6.2.1
+With GNU MPFR 4.2.0
+With mathlib from R 4.2.2
+With GNU Scientific Library 2.7.1
+With GNU plotutils 4.4
+With ncurses 6.5
+With GNU libc version glibc 2.36
+With GNU readline 8.2
+
+===
+END OF ALGOL 68 GENIE INSTALLATION
+===
+
+===
+SDL 2 INSTALLATION FROM SOURCE
+(There are also three separate "SDL related" libraries that must be
+built. The SDL_gfx library doesn't seem to be all that well supported,
+either. Getting and building these must be done after SDL 2 itself,
+and each is described separately.)
+===
+
+$ cd ~
+
+$ mkdir sdl2
+
+$ cd sdl2
+
+$ git clone https://github.com/libsdl-org/SDL.git -b SDL2
+Cloning into 'SDL'...
+...
+Receiving objects: 100% (234441/234441), 147.58 MiB | 9.88 MiB/s, done.
+Resolving deltas: 100% (174500/174500), done.
+
+$ cd SDL
+
+$ mkdir build
+
+$ cd build
+
+$ ../configure
+checking build system type... x86_64-pc-linux-gnu
+...
+config.status: executing summary commands
+SDL2 Configure Summary:
+Building Shared Libraries
+Building Static Libraries
+Enabled modules : atomic audio video render events joystick haptic hidapi sensor power filesystem threads timers file misc locale loadso cpuinfo assembly
+Assembly Math   : mmx sse sse2 sse3
+Audio drivers   : disk dummy oss alsa(dynamic) pulse(dynamic) jack(dynamic)
+Video drivers   : dummy offscreen x11(dynamic) opengl opengl_es1 opengl_es2 vulkan
+X11 libraries   : xcursor xdbe xinput2 xinput2_multitouch xfixes xrandr xshape
+Input drivers   : linuxev linuxkd
+Enable virtual joystick APIs : YES
+Using libsamplerate : NO
+Using libudev       : NO
+Using dbus          : YES
+Using ime           : YES
+Using ibus          : NO
+Using fcitx         : YES
+
+$ make
+/bin/bash ../build-scripts//updaterev.sh --vendor ""
+...
+  CC     build/SDL_test_memory.lo
+  CC     build/SDL_test_random.lo
+  LTLINK build/libSDL2_test.la
+ar: `u' modifier ignored since `D' is the default (see `U')
+
+$ sudo make install
+/bin/bash ../build-scripts//updaterev.sh --vendor ""
+...
+/usr/bin/install -c -m 644 sdl2-config.cmake /usr/local/lib/cmake/SDL2
+/usr/bin/install -c -m 644 sdl2-config-version.cmake /usr/local/lib/cmake/SDL2
+
+===
+END SDL 2 INSTALLATION
+===
+
+===
+SDL_ttf INSTALLATION
+(Although not immediately obvious, the repo for this contains its
+own versions of freetype and harfbuzz. You have to use git to get
+submodules recursively to get these.)
+===
+
+$ cd ~/sdl2
+
+$ git clone https://github.com/libsdl-org/SDL_ttf -b SDL2
+
+$ cd SDL_ttf/
+
+$ git submodule update --init --recursive
+
+$ mkdir build
+
+$ cd build
+
+$ ../configure
+
+$ make
+
+$ sudo make install
+
+===
+END SDL_ttf INSTALLATION
+===
+
+===
+SDL_gfx INSTALLATION
+(Only the original "ferzkopp" version should be used. There are variations
+on Github, but these have gratuitously renamed functions and may have other
+issues. The "good" version can only be fetched as a tar file.)
+===
+
+$ cd ~/sdl2
+
+$ wget http://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz
+
+$ tar xzf SDL2_gfx-1.0.4.tar.gz
+
+$ rm SDL2_gfx-1.0.4.tar.gz
+
+$ mv SDL2_gfx-1.0.4 SDL2_gfx
+
+$ cd SDL2_gfx/
+
+$ ./configure
+
+$ make
+
+$ sudo make install
+
+===
+END SDL_gfx INSTALLATION
+===
+
+===
+SDL_image INSTALLATION
+===
+
+$ cd ~/sdl2
+
+$ git clone https://github.com/libsdl-org/SDL_image -b SDL2
+
+$ cd SDL_image/
+
+$ ./configure
+
+$ make
+
+$ sudo make install
+
+===
+END SDL_image INSTALLATION
+===
+
+===
+VCPGUI installation
+===
+
+$ cd ~
+
+$ mkdir vcpgui68
+
+$ cd vcpgui68
+
+$ git clone ssh://nick@mac1.hccc.net/home/nick/gitprojects/vcpgui68
+
+$ cd vcpgui68
+
+$ wget https://github.com/CLIUtils/CLI11/releases/download/v2.7.2/CLI11.hpp
+
+$ sudo apt install libusb-1.0-0-dev
+
+$ ./build.sh
+
+$ wget https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-1-amd64.deb
+
+$ sudo apt install ./pandoc-3.11-1-amd64.deb
+
+$ sudo apt install texlive-full
+
+$ ./builddoc.sh
+
+===
+END VCPGUI installation
+===
+
+

@@ -306,9 +306,14 @@ Linux.
 ### SDL 2
 
 SDL 2 is also probably best built from source, and this is also quite straightforward to do.
-All the required downloads and build information can be found 
+Most of the required downloads and build information can be found 
 [here](https://wiki.libsdl.org/SDL2/Installation). Many Linux distributions have packages
 for SDL 2, but they often contain quite old versions.
+
+Unfortunately, we must also build three ancilliary SDL 2 libraries: SDL_ttf (for rendering TrueType
+fonts), SDL_image (for reading image files) and SDL_gfx (for graphics). The last of these is
+particularly problematic to obtain and build. A complete example of how to download and build
+these can be found in [this](doc/install-log.txt) installation log file.
 
 ### libusb 1.0 development libraries
 
@@ -352,6 +357,65 @@ sudo apt install texlive
 
 It can be installed on macOS from [here](https://www.tug.org/mactex/). The LaTeX installation
 is very large, but also very useful.
+
+### UDEV rules
+
+To allow USB devices to be accessed without root privileges (e.g. using sudo), a "udev rule"
+file must be created for the device. 
+
+For the Rigol DM3000 series multimeters, we need to create a file (as sudo) called, say:
+
+```
+/etc/udev/rules.d/99-libusb.rules
+```
+
+The "99" can be any number greater than 50. As noted above, USB TMC devices are identified by
+"vendor-id" (VID) and "product-id" (PID) pair of 16 bit hexadecimal numbers. The numbers
+for any device can be found using `lsusb`. In this case:
+
+```
+Bus 002 Device 018: ID 1ab1:09c4 Rigol Technologies DM3000 SERIES
+```
+
+This tells us that, for this type of device, VID = 1ab1 and PID = 09c4.
+
+So the `99-libusb.rules` needs to contain:
+
+```
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1ab1", ATTRS{idProduct}=="09c4", GROUP="plugdev", MODE="0660"
+```
+
+After creating this file, the UDEV rules must be reloaded and applied. These commands will do that:
+
+```
+$ sudo udevadm control --reload-rules$
+$ sudo udevadm trigger
+```
+
+For the function generator, connected over a "serial line" (but physically USB), we can
+find this from `lsusb` when the function generator is on and connected:
+
+```
+Bus 003 Device 020: ID 2341:0043 Arduino SA Uno R3 (CDC ACM)
+```
+
+We can create the following UDEV rukes file for this device:
+
+```
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2341", GROUP="plugdev", MODE="0666"
+```
+
+In this case, we don't need to specify a PID. We could put this in a file called
+`99-arduino.rules`.
+
+After these rules have been defined and loaded, these 
+rules should be followed each time the device is seen again (e.g. plugged in),
+including after reboots.
+
+### Sample detailed installation log
+
+As a record of a complete installation on Debian 12 Linux, running on x86_64 hardware,
+please see [this](doc/install-log.txt) log file.
 
 ## More Screenshots
 
