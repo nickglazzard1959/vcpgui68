@@ -15,6 +15,14 @@ software:
 
 ---
 
+Note that, at present, this software will only work on Linux (it
+has been developed and tested on Debian 12 specifically). It should
+be possible to port it to other "Unix-like" operating systems and
+macOS, although there are details such as UDEV rules and serial i/o
+functions which will need attention.
+
+There is no support for any version of Windows.
+
 ## Introduction
 
 This project started with a desire to provide a user interface for a home
