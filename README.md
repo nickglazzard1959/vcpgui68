@@ -160,7 +160,8 @@ with code written in Algol 68 over pipes. The following helper programs exist:
   files are: `dsurf.png` and `dsurf.tal`. Much of the appearance of the GUI can be changed
   simply by changing these files (or even just the PNG file). For example, LED numeric displays
   could easily be created instead of Nixie tube displays. Note that the PNG image has an alpha
-  channel, which is essential for certain effects.
+  channel, which is essential for certain effects. DSURF also reads the file `dsurf.wav`, which
+  provides a "clicking sound" when buttons are "pushed".
 - SerialIO (`serialio.cpp`) is responsible for sending and receiving data on a serial line
   (usually `/dev/ttyACMn` on Linux) at a specified baud rate, parity and number of data and 
   stop bits. Again, the A68 code simply writes what it wants to send to stdin of SerialIO and
@@ -305,15 +306,26 @@ Linux.
 
 ### SDL 2
 
-SDL 2 is also probably best built from source, and this is also quite straightforward to do.
+SDL 2 can be built from source, and this is also straightforward to do for the core SDL library.
 Most of the required downloads and build information can be found 
-[here](https://wiki.libsdl.org/SDL2/Installation). Many Linux distributions have packages
-for SDL 2, but they often contain quite old versions.
+[here](https://wiki.libsdl.org/SDL2/Installation).
 
 Unfortunately, we must also build three ancilliary SDL 2 libraries: SDL_ttf (for rendering TrueType
 fonts), SDL_image (for reading image files) and SDL_gfx (for graphics). The last of these is
 particularly problematic to obtain and build. A complete example of how to download and build
 these can be found in [this](doc/install-log.txt) installation log file.
+
+Many Linux distributions have packages for SDL 2, but they often contain quite old versions.
+However, installing these packages may be the most convenient approach.
+
+For Debian and Ubuntu Linux, these are the required packages:
+
+```
+libsdl2-dev
+libsdl2-image-dev
+libsdl2-ttf-dev
+libsdl2-gfx-dev
+```
 
 ### libusb 1.0 development libraries
 
@@ -369,7 +381,7 @@ For the Rigol DM3000 series multimeters, we need to create a file (as sudo) call
 /etc/udev/rules.d/99-libusb.rules
 ```
 
-The "99" can be any number greater than 50. As noted above, USB TMC devices are identified by
+The "99" can be any number greater than 50. As noted above, USB TMC devices are identified by a
 "vendor-id" (VID) and "product-id" (PID) pair of 16 bit hexadecimal numbers. The numbers
 for any device can be found using `lsusb`. In this case:
 
@@ -388,7 +400,7 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="1ab1", ATTRS{idProduct}=="09c4", GROUP="plug
 After creating this file, the UDEV rules must be reloaded and applied. These commands will do that:
 
 ```
-$ sudo udevadm control --reload-rules$
+$ sudo udevadm control --reload-rules
 $ sudo udevadm trigger
 ```
 
@@ -399,7 +411,7 @@ find this from `lsusb` when the function generator is on and connected:
 Bus 003 Device 020: ID 2341:0043 Arduino SA Uno R3 (CDC ACM)
 ```
 
-We can create the following UDEV rukes file for this device:
+We can create the following UDEV rules file for this device:
 
 ```
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="2341", GROUP="plugdev", MODE="0666"
@@ -416,6 +428,28 @@ including after reboots.
 
 As a record of a complete installation on Debian 12 Linux, running on x86_64 hardware,
 please see [this](doc/install-log.txt) log file.
+
+## Any conclusions?
+
+Just two observations so far:
+
+1. Algol 68, through Algol 68 Genie, is a viable language for small to medium scale software
+   projects today. Many thanks to Marcel van der Veer for his superb interpreter / compiler.
+   As Algol 68 is a garbage collected (heap) language, it should be considered a "high level"
+   language and not a "systems programming" language, so it is perhaps not suitable for all applications
+   (I might argue that is true of all programming languages, although many would disagree).
+2. This entire project has less than 8000 lines of Algol 68 (including comments) and less
+   than 3000 lines of C++. This includes all "general purpose" support code as well as "GUI"
+   code as such. Although limited, it seems that useful "GUI" systems can be quite small.
+
+One slightly disappointing point: Github does not currently "understand" Algol 68 through
+its "Linguist" project. This means that syntax highlighting when viewing the source code
+doesn't work. To prevent all code being counted as C++, I have made `.a68` files be counted
+as "ALGOL" (which is Algol 60 -- which Github *does* have support for). This doesn't help
+at all with syntax highlighting, though -- it shows how very different Algol 68 is
+from Algol 60, in fact. The requirements for a language to be added to the "Linguist"
+project (200 active projects using it, I think) are probably not met by Algol 68, although
+maybe they one day will be if the recent GNU A68 compiler front end gets some use. 
 
 ## More Screenshots
 
