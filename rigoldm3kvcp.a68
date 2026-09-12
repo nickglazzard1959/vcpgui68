@@ -17,7 +17,7 @@ COMMENT
 PR heap=256M PR
 
 PR read "utility.a68" PR
-PR read "arg_parser.a68" PR
+ PR read "arg_parser.a68" PR
 PR read "config_parser.a68" PR
 PR read "vcpgui.a68" PR
 PR read "rigol3kdmm.a68" PR
@@ -86,15 +86,18 @@ PROC timer_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 # Change when to make a measurement. #
 PROC sample_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
-   CASE state
-   IN
-      (REF RADIOBUTTON rb): (
-         (get_radiobutton_sel_label(rb) = "AUTO" | sample_auto := TRUE;  set_timer(dsurf_pipe, "timer", TRUE, FALSE));
-         (get_radiobutton_sel_label(rb) = "MANUAL" | sample_auto := FALSE; set_timer(dsurf_pipe, "timer", FALSE, FALSE))
-      )
-   OUT
-      put(stand error, ("Expected a radio button. Got something else!", new line))
-   ESAC;
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF RADIOBUTTON rb): (
+            (get_radiobutton_sel_label(rb) = "AUTO" | sample_auto := TRUE;  set_timer(dsurf_pipe, "timer", TRUE, FALSE));
+            (get_radiobutton_sel_label(rb) = "MANUAL" | sample_auto := FALSE; set_timer(dsurf_pipe, "timer", FALSE, FALSE))
+         )
+      OUT
+         put(stand error, ("Expected a radio button. Got something else!", new line))
+      ESAC
+   FI;
    FALSE
 );
 
@@ -113,32 +116,38 @@ PROC function_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
    []STRING all_units = ("V","V","A","A",ohm,ohm,"Hz","s","","","F");
    []STRING all_funcnames = ("DCV","ACV","DCI","ACI","OHM","OHM4","FREQ","PER","CONT","DIOD","CAP");
 
-   CASE state
-   IN
-      (REF RADIOBUTTON rb): (
-         function := all_functions[which OF rb];
-         units := all_units[which OF rb];
-         ieb(set_function_dm3k(device, all_funcnames[which OF rb]));
-         update_auto(device)
-      )
-   OUT
-      put(stand error, ("Expected a radio button. Got something else!", new line))
-   ESAC;
+   IF event[1] = "D"
+   THEN
+      CASE state
+      IN
+         (REF RADIOBUTTON rb): (
+            function := all_functions[which OF rb];
+            units := all_units[which OF rb];
+            ieb(set_function_dm3k(device, all_funcnames[which OF rb]));
+            update_auto(device)
+         )
+      OUT
+         put(stand error, ("Expected a radio button. Got something else!", new line))
+      ESAC
+   FI;
    FALSE
 );
 
 # Switch between automatic and manual range selection. #
 PROC range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 (
-   CASE state
-   IN
-      (REF RADIOBUTTON rb): (
-         (get_radiobutton_sel_label(rb) = "AUTO" | ieb(set_auto_range_dm3k(device)));
-         (get_radiobutton_sel_label(rb) = "MANUAL" | ieb(set_manual_range_dm3k(device)))
-      )
-   OUT
-      put(stand error, ("Expected a radio button. Got something else!", new line))
-   ESAC;
+   IF event[1] = "D"
+   THEN      
+      CASE state
+      IN
+         (REF RADIOBUTTON rb): (
+            (get_radiobutton_sel_label(rb) = "AUTO" | ieb(set_auto_range_dm3k(device)));
+            (get_radiobutton_sel_label(rb) = "MANUAL" | ieb(set_manual_range_dm3k(device)))
+         )
+      OUT
+         put(stand error, ("Expected a radio button. Got something else!", new line))
+      ESAC
+   FI;
    FALSE  
 );
 

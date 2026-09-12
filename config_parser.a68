@@ -673,7 +673,7 @@ PROC write_config_file = (REF CONFIG_PARSE cp, STRING filename) BOOL:
          (i > 1 | put(fout, (new line)));
          put(fout, ("[", tables[i], "]", new line));
 
-         FLEX [1:0] STRING keys_in_table := SORT config_get_keys_in_table(cp, tables[i], FALSE);
+         FLEX [1:0] STRING keys_in_table := SORT config_get_keys_in_table(cp, tables[i], TRUE);
          FOR j TO ELEMS keys_in_table
          DO
             put(fout, (keys_in_table[j], " = "));

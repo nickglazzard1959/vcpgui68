@@ -1857,6 +1857,8 @@ PROC update_timer = (PIPE p, REF TIMER tm, STRING event) VOID:
 );
 
 # Set a timer. This starts (run=TRUE) or stops (run=FALSE) it. #
+# Note that the timer is 'one-shot'. Timer callbacks need to restart it if they want to be called again. #
+# Using run=FALSE will remove/cancel the timer if it is still running (rarely useful, though). #
 PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 (
    INT i_component := check_old_tag(tag);
@@ -2343,7 +2345,7 @@ PROC check_old_tag = (STRING tag) INT:
 (
    USERPROC someproc;
    INT i_component := find_component(tag, someproc);
-   ((i_component = 0) | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)); debug);
+   ((i_component = 0) | put(stand error, ("WARNING: Tag [",tag,"] has not been defined.", new line)));
    i_component
 );
 

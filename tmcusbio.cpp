@@ -509,7 +509,7 @@ int main( int ArgCount, char **Args )
   app.add_option("-b,--buffer", binary_buffer_size, "Bytes to allocate for binary data buffer.");
   
   app.add_flag("-v,--version", version_mode, "Show version information, then exit,");
-  app.add_flag("-d,--debug", version_mode, "Turn on (very extensive) debug output,");
+  app.add_flag("-d,--debug", debug_mode, "Turn on (very extensive) debug output,");
 
   CLI11_PARSE(app, ArgCount, Args);
 

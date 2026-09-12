@@ -282,23 +282,34 @@ PROC doll = (STRING s) STRING:
 PROC split_string = (STRING s, CHAR c) []STRING:
 (
    INT string_length := ELEMS s;
-   INT n_words := 0;
+   INT n_words := 0, n_seps := 0;
    FLEX [1:0] STRING return;
+
+   # Count seperator characters c in s. #
    FOR i TO string_length
    DO
-      (s[i] = c | n_words +:=1)
+      (s[i] = c | n_seps +:=1)
    OD;
-   ((n_words = 0) AND (string_length > 0) | n_words := 1);
+
+   # No separators, but some characters => single word not ending in a separator. #
+   ((n_seps = 0) AND (string_length > 0) | n_words := 1 | n_words := n_seps);
+
    IF n_words = 0
    THEN
+      # Empty string s. Return single element row, element set to empty string. #
       [1]STRING result;
       result[1] := "";
       return := result
+
    ELSE
-      (s[string_length] /= c | n_words +:= 1);
+      # String s has one or more words. #
+      # If there were separators and s doesn't end in a separator, there is 1 more word than separators. #
+      (n_seps > 0 AND s[string_length] /= c | n_words +:= 1);
+
+      # Split the string into n_words string elements. #
       [n_words]STRING result;
       INT i_word := 0;
-      INT j := 0;
+      INT j := 0; # Index in s of last found separator character. #
       FOR i TO string_length
       DO
          IF s[i] = c
@@ -308,9 +319,12 @@ PROC split_string = (STRING s, CHAR c) []STRING:
             j := i
          FI
       OD;
+
+      # Get any trailing word after the last separator. #
       (j /= string_length | i_word +:= 1; result[i_word] := s[j+1:]);
       return := result
    FI;
+
    return
 );
 
@@ -411,9 +425,8 @@ PROC strip_char = (STRING s, CHAR c) STRING:
 # Check if a string is in a comma separated list of valid strings. #
 PROC check_valid = (STRING test, STRING valid) BOOL:
 (
-   STRING valid_comma := valid + ",";
-   STRING test_comma := test + ",";
-   string in string(test_comma, NIL, valid_comma)
+   FLEX [1:0]STRING valids := split_string(valid, ",");
+   string_in_row_of_strings(test, valids) > 0
 );
 
 # Convert a string to a "choice" index by searching for it in a #
@@ -1375,24 +1388,52 @@ PROC rtosistst4 = (REAL v) VOID:
    put(stand error, (" s = ", s[1:bdp]+"."+s[bdp+1:], " dp = ", wint(dp), newline))
 );
 
-print((split_string("hello,you nice,things",","), new line));
-print((split_string("",","), new line));
-print((split_string("things,",","), new line));
-print((split_string(",things,",","), new line));
-print((split_string("thing",","), new line));
-print((split_string(",,,",","), new line));
-print((split_string(",a   ,   b,",","), new line));
+PROC test_split_string = (STRING s, CHAR c) VOID:
+(
+   FLEX [1:0]STRING parts := split_string(s, c);
+   print(("[",s,"] --> parts: ", wint(ELEMS parts), " "));
+   FOR i TO ELEMS parts
+   DO
+      print(("[",parts[i],"]" + (i < ELEMS parts | "," | "" )))
+   OD;
+   print((newline))
+);
+
+PROC test_check_valid = (STRING test, STRING valids) VOID:
+(
+   print(("[",test,"] in [",valids,"] ? --> ",check_valid(test, valids),newline))
+);
+
+test_split_string("hello,you nice,things",",");
+test_split_string("",",");
+test_split_string("things,",",");
+test_split_string(",things,",",");
+test_split_string("thing",",");
+test_split_string(",,,",",");
+test_split_string(",a   ,   b,",",");
 print(("[",trim_trailing("  a b  "),"]", new line));
 print(("[",trim_leading("  a b  "),"]", new line));
 print(("[",trim("  a b  "),"]", new line));
 print(("[",trim(" "),"]", new line));
 print(("[",trim(""),"]", new line));
-print((split_string("hello you nice things", " "), new line));
-print((split_string(""," "), new line));
-print((split_string("things "," "), new line));
-print((split_string(" things "," "), new line));
-print((split_string("thing"," "), new line));
-print((split_string("   "," "), new line));
+test_split_string("hello you nice things", " ");
+test_split_string(""," ");
+test_split_string("things "," ");
+test_split_string(" things "," ");
+test_split_string("thing"," ");
+test_split_string("   "," ");
+
+STRING valid_baud = "50,75,110,134,150,200,300,600,1200,1800,2400,4800,9600,19200,38400,57600,\
+115200,230400,460800,500000,576000,921600,1000000,1152000,1500000,2000000";
+test_check_valid("5", valid_baud);
+test_check_valid("50", valid_baud);
+test_check_valid("6000", valid_baud);
+test_check_valid("600", valid_baud);
+test_check_valid("nuts", valid_baud);
+test_check_valid("", valid_baud);
+test_check_valid(" ", valid_baud);
+test_check_valid(",", valid_baud);
+test_check_valid("2000000", valid_baud);
 
 REAL vt := 0;
 stortst("1");

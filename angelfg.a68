@@ -73,8 +73,10 @@ PROC send_cmd_afg = (REF AFG afg, STRING cmd) BOOL:
    IF NOT AFG_INVALID afg
    THEN
       CO print(("cmd=[",cmd,"]",newline)); CO
-      IF NOT fake OF afg
+      IF fake OF afg
       THEN
+         retval := TRUE
+      ELSE
          write_serial_line(p OF afg, cmd);
          CHAR response := read_serial_char(p OF afg);
          (response /= "*" | put(stand error, ("Device response error: ", response, new line)); done);
