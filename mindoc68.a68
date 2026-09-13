@@ -268,7 +268,7 @@ PROC process_source_file = (STRING source_file, REF FILE fout, BOOL to_pdf) VOID
                      multi_procop_def := input_line
             );
             (is_proc | proc_no +:= 1);
-            (is_op | op_no +:= 1)
+            (is_op OR is_prio | op_no +:= 1)
 
          # Continuing a comment block after first line of description. #
          ELIF last_comment AND comment

@@ -97,6 +97,10 @@ Apart from the 'output only' components -- numeric and time displays and lamps -
 procedures can be associated with components that are called when interactions
 occur with those components (i.e. 'callbacks'). 
 
+Each component has a "name", called a "tag" in the code below. NOTE: tags must not
+contain underscore characters. These names or tags are used to locate components
+by "higher level" API calls and are reported to "callback" functions.
+
 Layout of components on the display surface must be done manually. Routines are
 provided to help with this, but there is no automatic layout available. 
 
@@ -328,6 +332,7 @@ PROC ds_set_colour_rgba = ( PIPE p, INT r, g, b, a ) VOID:
    a OF c OF dstate := clamp_255(a)
 );
 
+# Set the drawing colour from an RGBACOLOUR struct. #
 PROC ds_set_colour_rgba_struct = ( PIPE p, RGBACOLOUR c ) VOID:
 (
    ds_set_colour_rgba(p, r OF c, g OF c, b OF c, a OF c)
@@ -436,6 +441,7 @@ PROC ds_text = ( PIPE p, STRING s, INT x, y, BOOL centered, INT dy ) VOID:
 );
 
 # Add text drawn with a font renderer to the display list. #
+# N.B. With the current dsurf.cpp, s will be truncated (harmlessly) after 127 characters. #
 PROC ds_text_in_font = ( PIPE p, STRING s, INT x, y, BOOL centered, INT dy ) VOID:
 (
    STRING out_string := string(LOC STRING, ("$text_in_font$,",wint(x),",",wint(y),",$"+s+"$,",
@@ -2148,7 +2154,7 @@ PROC evenly_distribute = (GEOMETRY g, []INT button_counts, INT button_width,
    INT p := 0;
    FOR i TO n_button_groups
    DO
-      INT ugap := (flush_lr AND (i=1 CO OR i=n_button_groups CO) | 0 | gap);
+      INT ugap := (flush_lr AND (i=1 CO OR i=n_button_groups CO) | 0 | gap); # Flush right disabled. Not sure why I did that. #
       centers[i] := p + ugap + (button_counts[i] * button_width) % 2;
       p := centers[i] + (button_counts[i] * button_width) % 2;
       over := (p + ugap) > total_width

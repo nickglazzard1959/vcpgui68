@@ -666,6 +666,8 @@ TEXTURE_ATLAS load_texture_atlas( SDL_Renderer* renderer, std::string filename )
   int line_no = 0;
   while( std::getline(stin, line) ){
     trim(line);
+    if( 0 == line.length() )
+      continue;
     if( line[0] == '#' )
       continue;
     
@@ -1525,6 +1527,11 @@ int main (int ArgCount, char **Args)
 
       if( event.type == SDL_MOUSEWHEEL ){
         std::string tag;
+        // Perhaps we should select the thing we are "wheeling" over? Not 100% sure.
+        if( true ){
+          x_last_down = event.wheel.x;
+          y_last_down = event.wheel.y;
+        }
         int sr_index = in_sense_rect(x_last_down, y_last_down, dstate.sense_rects,
                                      SR_WHEEL_EVENT,
                                      tag);

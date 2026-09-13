@@ -107,14 +107,17 @@ PROC query_usbtmc = (PIPE p, STRING s, REF STRING result) INT:
    put(write OF p, ("Q"+s, new line));
    get(read OF p, (response, new line));
    CO put(stand error, ("[",response,"]",new line)); CO
-   (response[1] = "?" |
-         put(stand error, ("query_usbtmc() error: [",response[2:],"]",new line));
-         (response[2:] = "LIBUSB_ERROR_TIMEOUT" |
-               retval := 2 |
-                  retval := 1
-         ) |
-            result := response[2:]
-   );
+   IF ELEMS response > 0
+   THEN
+      (response[1] = "?" |
+            put(stand error, ("query_usbtmc() error: [",response[2:],"]",new line));
+            (response[2:] = "LIBUSB_ERROR_TIMEOUT" |
+                  retval := 2 |
+                     retval := 1
+            ) |
+               result := response[2:]
+      )
+   FI;
    retval
 );
 

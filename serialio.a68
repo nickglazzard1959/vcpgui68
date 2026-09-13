@@ -80,6 +80,7 @@ Check UDEV rules or sudo chmod 666 it.", new line));
    retval
 );
 
+# Close an open serialio connection. #
 PROC close_serial = (PIPE p) VOID:
 (
    close(read OF p);

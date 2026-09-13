@@ -241,10 +241,13 @@ PROC parse_args = (REF ARG_PARSE arg_parser) BOOL:
                                                         ok := FALSE; fail);
                                       cur_arg +:= 1;
                                       svalue := argv(cur_arg);
-                                      (svalue[1] = "-" | 
-                                            put(stand error, ("String argument cannot start with - option: ",
-                                                              opt_name,newline)); 
-                                            ok := FALSE; fail)
+                                      IF ELEMS svalue > 0
+                                      THEN
+                                         (svalue[1] = "-" | 
+                                               put(stand error, ("String argument cannot start with - option: ",
+                                                                 opt_name,newline)); 
+                                               svalue := ""; ok := FALSE; fail)
+                                      FI
                                     ), 
                (REF BOOL bvalue): ( matched := TRUE; 
                                     bvalue := NOT bvalue
@@ -300,7 +303,7 @@ PROC parse_args = (REF ARG_PARSE arg_parser) BOOL:
             print((out_string[:newline_pos-1], new line));
             out_string := out_string[newline_pos+2:]
          OD;
-         (ELEMS out_string > 1 | print((out_string, new line)));
+         (ELEMS out_string > 0 | print((out_string, new line)));
          print((new line))
       FI;
 

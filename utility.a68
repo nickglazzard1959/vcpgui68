@@ -41,7 +41,7 @@ PROC sleep_void = (INT t) VOID:
 PROC run_command_get_output = (STRING cmd, REF STRING output) BOOL:
 (
    BOOL retval := FALSE;
-   IF STRING sh_cmd = " " + cmd + " ; 2>&1";
+   IF STRING sh_cmd = " " + cmd + " 2>&1";
       execve output("/bin/sh", ("sh", "-c", sh_cmd), "", output) >= 0
    THEN
       retval := TRUE
@@ -507,9 +507,12 @@ PROC string_to_int = (STRING s) INT:
 (
    INT retval := 0, sign := 1;
    STRING ls := trim(s);
-   (ls[1] = "-" | ls := ls[2:]; sign := -1);
-   (ls[1] = "+" | ls := ls[2:]);
-   (all_digits(ls) | gets(ls, (retval)));
+   IF ELEMS ls > 0
+   THEN
+      (ls[1] = "-" | ls := ls[2:]; sign := -1);
+      (ls[1] = "+" | ls := ls[2:]);
+      (all_digits(ls) | gets(ls, (retval)))
+   FI;
    sign * retval
 );
 
@@ -649,7 +652,7 @@ PROC real_to_si_real = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small
 );
 
 # This variant uses an above 7 bit code for micro. DSURF will map this to Unicode for Greek mu. #
-PROC real_to_si_real_dsurf = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small, BOOL do_mu) BOOL:
+PROC real_to_si_real_dsurf = (REAL v, REF REAL v_out, REF STRING prefix, BOOL do_small) BOOL:
 (
    real_to_si_real_internal(v, v_out, prefix, do_small, TRUE)
 );

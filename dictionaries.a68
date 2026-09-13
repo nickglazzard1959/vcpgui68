@@ -716,6 +716,7 @@ OP HASKEY = (REF INT_DICT dict, CHAR key) BOOL:
    dict HASKEY STRING(key)
 );
 
+# Get the keys of dictionaaary of integers. #
 PROC get_int_dict_keys_array = (REF INT_DICT dict) []STRING:
 (
    string_list_as_array(keys_list OF dict)

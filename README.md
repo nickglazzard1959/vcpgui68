@@ -165,7 +165,9 @@ with code written in Algol 68 over pipes. The following helper programs exist:
   Most GUI elements are drawn with texture mapped rectangles. The textures used are stored
   in two files: a PNG file containing all the images (the texture atlas image) and a
   file that describes the locations of named textures in the texture atlas image. The default
-  files are: `dsurf.png` and `dsurf.tal`. Much of the appearance of the GUI can be changed
+  files are: `dsurf.png` and `dsurf.tal` (in fact, `dsurf.tal` is currently "hardwired" in
+  vcpgui.a68, `open_gui()`, the PNG file name is specified in `dsurf.tal`, but is effectively
+  also "hardwired" at present). Much of the appearance of the GUI can be changed
   simply by changing these files (or even just the PNG file). For example, LED numeric displays
   could easily be created instead of Nixie tube displays. Note that the PNG image has an alpha
   channel, which is essential for certain effects. DSURF also reads the file `dsurf.wav`, which

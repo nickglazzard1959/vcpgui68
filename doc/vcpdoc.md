@@ -1,7 +1,7 @@
 ---
 title: "VCPGUI Preludes"
 author: "Mindoc68"
-date: "2026-9-7"
+date: "2026-9-13"
 header-includes:
  - |
    \usepackage{a4wide}
@@ -153,8 +153,8 @@ Format the volts string for display on the LCD and send the string.
 ## Statistics
 PROC declarations: 12\
   OP declarations: 1\
-      Total lines: 264\
-    Lines of code: 185\
+      Total lines: 266\
+    Lines of code: 187\
 
 # `arg_parser.a68`
 A command line argument parser.
@@ -190,7 +190,7 @@ of supplied positionals must match the number of descriptions.
 See the TESTS section at the bottom of the file for a usage example.
 
 Some test cases, for example:
-```  
+``` 
 a68g arg_parser.a68                          # OK # 
 a68g arg_parser.a68 -- -h                    # OK # 
 a68g arg_parser.a68 -- -f -t Yikes           # OK # 
@@ -331,8 +331,8 @@ Parse user supplied command line args and update the variables they are associat
 ## Statistics
 PROC declarations: 12\
   OP declarations: 0\
-      Total lines: 367\
-    Lines of code: 245\
+      Total lines: 370\
+    Lines of code: 248\
 
 # `config_parser.a68`
 Read a config file, parse it and allow its definitions to be accessed as variables
@@ -341,13 +341,13 @@ This parses something like a sub-set of TOML, but compatibility wasn't a goal.
 A full TOML parser should cope with the things this parser can deal with, though.
 
 Example of usage:
-```  
+``` 
 REF CONFIG_PARSE cp := make_config_parser("test.ini"); 
 IF NOT parse_config_file(cp) 
-THEN  
+THEN 
 put(stand error, ("Failed to parse config file. Giving up.", newline)); 
-...stop  
-FI;  
+...stop 
+FI; 
  
 # Basic string # 
 STRING again := config_get_string_value(cp, "again", "nuts"); 
@@ -619,6 +619,14 @@ OP +:= = (REF STRING_LIST list, STRING elem) REF STRING_LIST:
 
 ```
 Append a string to a list. Overload PLUSAB. Cheap. O(1).
+
+---
+
+```
+OP +:= = (REF STRING_LIST list, []STRING rowofstrings) REF STRING_LIST: 
+
+```
+Append a row of strings to a list. Another PLUSAB overload.
 
 ---
 
@@ -926,6 +934,14 @@ Again, if a single character key is provided, it must be cast to a STRING.
 ---
 
 ```
+PROC get_int_dict_keys_array = (REF INT_DICT dict) []STRING: 
+
+```
+Get the keys of dictionaaary of integers.
+
+---
+
+```
 PROC print_int_dict_keys = (REF INT_DICT dict) VOID: 
 
 ```
@@ -984,10 +1000,10 @@ Find an array of integers [1:n] randomly permuted. Fisher-Yates algorithm.
 ---
 
 ## Statistics
-PROC declarations: 11\
-  OP declarations: 27\
-      Total lines: 1064\
-    Lines of code: 759\
+PROC declarations: 12\
+  OP declarations: 35\
+      Total lines: 1086\
+    Lines of code: 777\
 
 # `rigol3kdmm.a68`
 Routines for controlling a Rigol 3K series DMM over USBTMC.
@@ -1215,6 +1231,14 @@ be an empty string for the defaults, or a four part string of the form:
 ---
 
 ```
+PROC close_serial = (PIPE p) VOID: 
+
+```
+Close an open serialio connection.
+
+---
+
+```
 PROC write_serial_char = (PIPE p, CHAR outchar) VOID: 
 
 ```
@@ -1247,9 +1271,9 @@ Read a line terminated by newline from serial.
 ---
 
 ## Statistics
-PROC declarations: 5\
+PROC declarations: 6\
   OP declarations: 0\
-      Total lines: 136\
+      Total lines: 137\
     Lines of code: 89\
 
 # `tmcusbio.a68`
@@ -1341,8 +1365,8 @@ Set the timeout period in milliseconds for USBTMC transfers.
 ## Statistics
 PROC declarations: 6\
   OP declarations: 0\
-      Total lines: 230\
-    Lines of code: 151\
+      Total lines: 233\
+    Lines of code: 154\
 
 # `utility.a68`
 Widely useful sundry routines, many to do with strings.
@@ -1800,7 +1824,7 @@ This variant uses u for micro prefix and is suitable for all output (command lin
 
 ```
 PROC real_to_si_real_dsurf = (REAL v, REF REAL v_out, REF STRING prefix, 
-BOOL do_small, BOOL do_mu) BOOL: 
+BOOL do_small) BOOL: 
 
 ```
 This variant uses an above 7 bit code for micro. DSURF will map this to Unicode for Greek mu.
@@ -2073,9 +2097,9 @@ If status FALSE, an internal error must have occurred. Abort.
 
 ## Statistics
 PROC declarations: 69\
-  OP declarations: 13\
-      Total lines: 1599\
-    Lines of code: 1147\
+  OP declarations: 14\
+      Total lines: 1686\
+    Lines of code: 1204\
 
 # `vcpgui.a68`
 A somewhat specialised GUI for controlling some instruments.
@@ -2174,6 +2198,10 @@ Keypads and numeric displays can be linked to allow easy numeric value input.
 Apart from the 'output only' components -- numeric and time displays and lamps --
 procedures can be associated with components that are called when interactions
 occur with those components (i.e. 'callbacks').
+
+Each component has a "name", called a "tag" in the code below. NOTE: tags must not
+contain underscore characters. These names or tags are used to locate components
+by "higher level" API calls and are reported to "callback" functions.
 
 Layout of components on the display surface must be done manually. Routines are
 provided to help with this, but there is no automatic layout available.
@@ -2336,6 +2364,14 @@ Set the drawing colour.
 ---
 
 ```
+PROC ds_set_colour_rgba_struct = ( PIPE p, RGBACOLOUR c ) VOID: 
+
+```
+Set the drawing colour from an RGBACOLOUR struct.
+
+---
+
+```
 PROC ds_clear = ( PIPE p ) VOID: 
 
 ```
@@ -2453,6 +2489,7 @@ dy ) VOID:
 
 ```
 Add text drawn with a font renderer to the display list.
+N.B. With the current dsurf.cpp, s will be truncated (harmlessly) after 127 characters.
 
 ---
 
@@ -3246,6 +3283,8 @@ PROC set_timer = (PIPE p, STRING tag, BOOL run, BOOL callproc) VOID:
 
 ```
 Set a timer. This starts (run=TRUE) or stops (run=FALSE) it.
+Note that the timer is 'one-shot'. Timer callbacks need to restart it if they want to be called again.
+Using run=FALSE will remove/cancel the timer if it is still running (rarely useful, though).
 
 ---
 
@@ -3591,15 +3630,15 @@ Run the event loop.
 ---
 
 ## Statistics
-PROC declarations: 164\
+PROC declarations: 165\
   OP declarations: 0\
-      Total lines: 2524\
-    Lines of code: 1850\
+      Total lines: 2535\
+    Lines of code: 1851\
 
 # Global Statistics
 ```
-  Global PROC declarations: 321
-    Global OP declarations: 42
-        Global total lines: 7598
-Global total lines of code: 5409
+  Global PROC declarations: 324
+    Global OP declarations: 51
+        Global total lines: 7727
+Global total lines of code: 5493
 ```

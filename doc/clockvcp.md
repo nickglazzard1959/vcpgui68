@@ -48,17 +48,19 @@ of that:
 ```
 immediate-update = false
 
-[cities]
-Paris = 2
-Tokyo = 9
-Montreal = -4
+[autocities]
+Paris = "Europe/Paris"
+Tokyo = "Asia/Tokyo"
+Montreal = "America/Montreal"
 ```
 
-The `[cities]` table contains city names and an offset from UTC that is
-relevant to that city. Ideally, these would be determined from timezone
-information, but, to be honest, that seems a bit too difficult to access
-from Algol 68 at present!  As a result, DST (Daylight Savings Time), where
-relevant, is also not accounted for. Well, maybe in Version 2 ...
+The `[autocities]` table contains city names and the "timezone" format
+"continent/city" string relevant to that city. This accounts for DST 
+(Daylight Savings Time) changes.
+
+An earlier version used a `[cities]` table which mapped city names to fixed
+hours offset from UTC. This didn't account for DST changes. The table has
+been left in `clock-cities.ini` as it may be instructive.
 
 The main point of this little program is a minimal demonstration of how
 to use VCPGUI. Hopefully, examining the `clockvcp.a68` program will be useful 
