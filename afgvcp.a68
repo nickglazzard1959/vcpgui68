@@ -13,6 +13,8 @@ Author: Nick Glazzard 2026
 --------------------------
 COMMENT
 
+PR heap=128M PR
+
 PR read "utility.a68" PR
 PR read "arg_parser.a68" PR
 PR read "vcpgui.a68" PR

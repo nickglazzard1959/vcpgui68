@@ -604,8 +604,9 @@ PROC si_string_to_real = (STRING s, REF REAL v, REF STRING units) BOOL:
    INT p := 1; # Start at the first character of s. #
    (NOT string_to_real_internal(despaced_s, no_prefix_v, FALSE, p, FALSE) | done);
 
-   # If p is at the last character in s, we are done. #
-   IF p /= ELEMS despaced_s
+   # If p is at the last character in s, we are done. BUT ONLY if the last character is a digit. #
+   # p may be at a valid prefix. #
+   IF (p /= ELEMS despaced_s) OR (NOT is digit(despaced_s[p]))
    THEN
       INT prefix_length := 0;
 
@@ -843,8 +844,11 @@ PROC string_to_real_internal = (STRING s, REF REAL v, BOOL use_all_s, REF INT p,
       IF is digit(s[p]) AND gdp
       THEN
          (NOT ifromc(s, idman, p, np) | fp_format_error);
+         # Work out number of decimal places in mantissa. BUT if we have reached the end of #
+         # the string AND the last character is a digit, we must adjust that count - BUT NOT #
+         # if the last character is a NON DIGIT. #
          ndman := np - p;
-         (np = islen | ndman +:= 1);
+         (np = islen AND is digit(s[np]) | ndman +:= 1);
          p := np;
          gdman := TRUE
       FI
@@ -1388,6 +1392,43 @@ PROC rtosistst4 = (REAL v) VOID:
    put(stand error, (" s = ", s[1:bdp]+"."+s[bdp+1:], " dp = ", wint(dp), newline))
 );
 
+PROC sr_edges = VOID:
+(
+   STRING s := "2k";
+   STRING units := "unset";
+   REAL v := 0.0;
+   BOOL ok := si_string_to_real(s, v, units);
+   print(("1: ",ok," v=",v," units=",units,newline));
+
+   s := "1.5V";
+   ok := string_to_real(s, v, FALSE);
+   print(("2 :",ok," v=",v," 1.5 ",newline));
+
+   s := "1.5";
+   ok := string_to_real(s, v, FALSE);
+   print(("3 :",ok," v=",v," 1.5 ",newline));
+
+   s := "1.52";
+   ok := string_to_real(s, v, FALSE);
+   print(("4 :",ok," v=",v," 1.52 ",newline));
+
+   s := "1.52V";
+   ok := string_to_real(s, v, FALSE);
+   print(("5 :",ok," v=",v," 1.52 ",newline));
+
+   s := "1.52VZ";
+   ok := string_to_real(s, v, FALSE);
+   print(("6 :",ok," v=",v," 1.52 ",newline));
+
+   s := "1";
+   ok := string_to_real(s, v, FALSE);
+   print(("7 :",ok," v=",v," 1 ",newline));
+
+   s := "1V";
+   ok := string_to_real(s, v, FALSE);
+   print(("8 :",ok," v=",v," 1 ",newline))
+);
+
 PROC test_split_string = (STRING s, CHAR c) VOID:
 (
    FLEX [1:0]STRING parts := split_string(s, c);
@@ -1461,6 +1502,8 @@ stortst("-1E3");
 stortst("-1E30");
 stortst("-1E300");
 stortst("-1E3000");
+
+sr_edges;
 
 print(("Open file mode r test. file exists.", new line));
 FILE fin;

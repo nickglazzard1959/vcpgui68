@@ -120,7 +120,7 @@ DO
 OD;
 IF ELEMS city_names < 3
 THEN
-   FOR i FROM (ELEMS city_names) TO 3
+   FOR i FROM (ELEMS city_names + 1) TO 3
    DO
       cities_list +:= ("," + "--" + wint(i))
    OD

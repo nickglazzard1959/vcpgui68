@@ -117,7 +117,9 @@ Author: Nick Glazzard 2026.
 ---------------------------
 COMMENT
 
+
 PR read "utility.a68" PR
+PR read "dictionaries.a68" PR
 
 # ================================== #
 # Run DSURF and communicate with it. #
@@ -161,21 +163,22 @@ PROC open_dsurf = (STRING title, INT width, INT height) PIPE:
       envars[i] := envar_names[i] + "=" + envalue
    OD;
 
-   STRING fast_update_string := (fast_update | "--update" | "");
-   STRING on_top_string := (on_top | "--ontop" | "");
-   STRING no_border_string := (no_border | "--nodecor" | "");
+   # Assemble arguments to DSURF. #
+   REF STRING_LIST dsurf_arg_list := STRING_LIST_INIT LOC STRING_LIST;
+   dsurf_arg_list +:= "dsurf";
+   (fast_update | dsurf_arg_list +:= "--update");
+   (on_top | dsurf_arg_list +:= "--ontop");
+   (no_border | dsurf_arg_list +:= "--nodecor");
+   []STRING options_list = ("--title", title,
+                            "--fontdir", font_directory,
+                            "--width", wint(width),
+                            "--height", wint(height),
+                            "--audiofile", click_audio);
+   dsurf_arg_list +:= options_list;
+   FLEX [1:0] STRING dsurf_args := string_list_as_array(dsurf_arg_list);
 
    # Run the display program and return the data needed to talk to it. #
-   PIPE dsurf_pipe := execve child pipe("./dsurf", ("dsurf",
-                                                    fast_update_string,
-                                                    on_top_string,
-                                                    no_border_string,
-                                                    "--title", title,
-                                                    "--fontdir", font_directory,
-                                                    "--width", wint(width),
-                                                    "--height", wint(height),
-                                                    "--audiofile", click_audio), 
-                                        envars);
+   PIPE dsurf_pipe := execve child pipe("./dsurf", dsurf_args, envars);
    IF pid OF dsurf_pipe = 0
    THEN
       put(stand error, ("open_dsurf(): Failed to create child process ", new line));

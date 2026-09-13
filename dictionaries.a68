@@ -63,6 +63,16 @@ OP +:= = (REF STRING_LIST list, STRING elem) REF STRING_LIST:
    list
 );
 
+# Append a row of strings to a list. Another PLUSAB overload. #
+OP +:= = (REF STRING_LIST list, []STRING rowofstrings) REF STRING_LIST:
+(
+   FOR i TO ELEMS rowofstrings
+   DO
+      list +:= rowofstrings[i]
+   OD;
+   list
+);
+
 # Test if list contains a given string. Expensive. O(n) #
 PRIO HASELEM = 1;
 OP HASELEM = (REF STRING_LIST list, STRING elem) BOOL:
@@ -1059,6 +1069,17 @@ OD;
 
 REF STRING_LIST new_line_list := STRING_LIST_INIT LOC STRING_LIST;
 string_list_join_to_lines(word_list, new_line_list, 75);
-string_list_print_elements(new_line_list)
+string_list_print_elements(new_line_list);
+
+REF STRING_LIST array_add_list := STRING_LIST_INIT LOC STRING_LIST;
+[]STRING s1 = ("dsurf");
+array_add_list +:= s1;
+array_add_list +:= "thing";
+STRING font_directory := "fd";
+STRING title := "a title";
+[]STRING s2 = ("--title", title,
+               "--fontdir", font_directory);
+array_add_list +:= s2;
+string_list_print_elements(array_add_list)
 
 FI;
