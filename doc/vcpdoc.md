@@ -1,7 +1,7 @@
 ---
 title: "VCPGUI Preludes"
 author: "Mindoc68"
-date: "2026-9-13"
+date: "2026-9-14"
 header-includes:
  - |
    \usepackage{a4wide}
@@ -1423,6 +1423,14 @@ Return a string denoting the OS being used (debian, macos or linux for now).
 ---
 
 ```
+PROC a68g_version = STRING: 
+
+```
+Get the version of Algol 68 Genie being used.
+
+---
+
+```
 PROC print_std_title = (STRING title) VOID: 
 
 ```
@@ -2096,10 +2104,10 @@ If status FALSE, an internal error must have occurred. Abort.
 ---
 
 ## Statistics
-PROC declarations: 69\
+PROC declarations: 70\
   OP declarations: 14\
-      Total lines: 1686\
-    Lines of code: 1204\
+      Total lines: 1707\
+    Lines of code: 1221\
 
 # `vcpgui.a68`
 A somewhat specialised GUI for controlling some instruments.
@@ -3637,8 +3645,8 @@ PROC declarations: 165\
 
 # Global Statistics
 ```
-  Global PROC declarations: 324
+  Global PROC declarations: 325
     Global OP declarations: 51
-        Global total lines: 7727
-Global total lines of code: 5493
+        Global total lines: 7748
+Global total lines of code: 5510
 ```

@@ -70,12 +70,33 @@ PROC get_os_name = STRING:
    retval
 );
 
+# Get the version of Algol 68 Genie being used. #
+PROC a68g_version = STRING:
+(
+   STRING version := "";
+   STRING version_output := "";
+   CHAR nl = REPR(10);
+
+   IF run_command_get_output("a68g --version", version_output)
+   THEN
+      FOR i TO ELEMS version_output
+      DO
+         (version_output[i] = nl | break1);
+         version +:= version_output[i]
+      OD;
+      break1:
+      SKIP
+   FI;
+
+   version
+);
+
 # Print a program title in a standard format. #
 PROC print_std_title = (STRING title) VOID:
 (
-   print((newline,title,newline));
-   print(((ELEMS title)*"=",newline));
-   print(("Running under Algol 68 Genie 3.12.0",newline))
+   print((newline, title, newline));
+   print(((ELEMS title)*"=", newline));
+   print(("Running under ", a68g_version, newline))
 );
 
 
