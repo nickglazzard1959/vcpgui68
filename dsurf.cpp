@@ -19,6 +19,16 @@
 //   g++ -O0 -g -Wall dsurf.cpp -o dsurf -I/usr/local/include/SDL2 -L/usr/local/lib 
 //              -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image -Wl,-rpath,/usr/local/lib
 //
+// This can also be built on an "ancient" Ubuntu 14.04 32 bit system with:
+//   g++ -O0 -g -Wall -std=c++11 -DANCIENT dsurf.cpp -o dsurf 
+//              -lSDL2 -lSDL2_gfx -lSDL2_ttf -lSDL2_image
+//
+//   NOTE: It is not possible to build recent versions of SDL 2 on such a system!
+//         Actually, SDL 2 seems to build OK, but TTF will not easily. It is possible
+//         to complete a build, but the resulting window will not respond or update.
+//         We have to workaround as needed to use the SDL 2 that came with that system.
+//         Problems are almost entirely confined to audio for button click sounds.
+//
 // Nick Glazzard 2026.
 // -------------------
 
@@ -154,6 +164,163 @@ typedef struct
 } THREAD_DATA;
 
 // Define a class to play a sound from a WAV file using SDL2 calls.
+#ifdef ANCIENT
+// This version will work with SDL 2 2.0.0 which lacks xxxQueueAudio() functions.
+typedef struct {
+  Uint8 *buffer;
+  Uint32 capacity;
+  Uint32 size;
+} LocalAudioQueue;
+
+void LocalAudioCallback(void *userdata, Uint8 *stream, int len) 
+//-------------------------------------------------------------
+// Callback function to get more audio data to play.
+// The output device calls this.
+{
+  LocalAudioQueue *queue = (LocalAudioQueue *)userdata;
+
+  // Clear the destination stream first (to ensure silence if we run out of data)
+  memset(stream, 0, len);
+
+  if (queue->size == 0)
+    return; // No data queued, plays silence
+
+  // Determine how many bytes we can actually read
+  Uint32 bytes_to_write = (queue->size < (Uint32)len) ? queue->size : (Uint32)len;
+
+  // Copy data from our queue to SDL's audio stream
+  memcpy(stream, queue->buffer, bytes_to_write);
+
+  // Shift the remaining data forward in our queue
+  queue->size -= bytes_to_write;
+  if (queue->size > 0)
+    memmove(queue->buffer, queue->buffer + bytes_to_write, queue->size);
+};
+
+class PlayWAVSound
+{
+public:
+  // Methods.
+
+  int Local_QueueAudio(SDL_AudioDeviceID dev, const void *data, Uint32 len)
+  //-----------------------------------------------------------------------
+  // Emulate SDL_QueueAudio(). Put audio data into a queue structure, from which
+  // LocalAudioCallback() can take data and feed it to an output device.
+  {
+    // 1. Thread safety: Lock the device to stop callbacks while we modify the queue
+    SDL_LockAudioDevice(dev);
+
+    // 2. Expand buffer if it's too small
+    Uint32 needed_capacity = audio_queue.size + len;
+    if (needed_capacity > audio_queue.capacity) {
+      Uint32 new_capacity = audio_queue.capacity == 0 ? 4096 : audio_queue.capacity * 2;
+      while (new_capacity < needed_capacity) {
+        new_capacity *= 2;
+      }
+        
+      Uint8 *new_buf = (Uint8 *)realloc(audio_queue.buffer, new_capacity);
+      if (!new_buf) {
+        SDL_UnlockAudioDevice(dev);
+        return -1; // Out of memory
+      }
+      audio_queue.buffer = new_buf;
+      audio_queue.capacity = new_capacity;
+    }
+
+    // 3. Append the new audio samples
+    memcpy(audio_queue.buffer + audio_queue.size, data, len);
+    audio_queue.size += len;
+
+    // 4. Thread safety: Unlock the device allowing callbacks.
+    SDL_UnlockAudioDevice(dev);
+    return 0;
+  }
+
+  PlayWAVSound(const char* wav_file_name)
+  //-------------------------------------
+  // Constructor. Open a WAV file and an audio device to play it.
+  {
+    // Assume it didn't work. Usually a safe assumption ... :-)
+    ok = false;
+    wav_buffer = NULL;
+    audio_queue = { NULL, 0, 0 };
+
+    // Try to open the WAV file and read its contents.
+    if( SDL_LoadWAV(wav_file_name, &wav_spec, &wav_buffer, &wav_length) != NULL ){
+    
+      // We need to use callbacks.
+      wav_spec.callback = LocalAudioCallback; 
+      wav_spec.userdata = &audio_queue;
+
+      // Calculate how long the sample will play for in milliseconds.
+      bytes_per_sample = SDL_AUDIO_BITSIZE(wav_spec.format) / 8;
+      play_ms = (Uint32)((float)(wav_length * 1000.0f) / 
+                         (wav_spec.channels * bytes_per_sample * wav_spec.freq)) + 1;
+
+      // Open the output audio device.
+      dev = SDL_OpenAudioDevice(NULL, 0, &wav_spec, NULL, 0);
+      if( dev != 0 ){
+
+        // Unpause device to begin listening for the callback
+        SDL_PauseAudioDevice(dev, 0); 
+
+        // Record that it worked.
+        ok = true;
+      }
+      else
+        fprintf(stderr, "PlayWAVSound(): SDL_OpenAudio() failed.\n");
+    }
+    else
+      fprintf(stderr, "PlayWAVSound(): SDL_LoadWAV(%s) failed.\n", wav_file_name);
+  };
+
+  ~PlayWAVSound()
+  //-------------
+  // Destructor. Close down SDL audio appropriately.
+  {
+    if( ok ){
+      SDL_CloseAudioDevice(dev);
+      if( wav_buffer != NULL )
+        SDL_FreeWAV(wav_buffer);
+      if( audio_queue.buffer != NULL )
+        free(audio_queue.buffer);
+    }
+  };
+
+  bool play( bool wait=false )
+  //--------------------------
+  // Play the audio sample from the WAV file named in the constructor.
+  {
+    if( ! ok )
+      return false;
+
+    // Queue the audio to play. 
+    if( Local_QueueAudio(dev, wav_buffer, wav_length) < 0 ){
+      fprintf(stderr, "Local_QueueAudio failed: %s\n", SDL_GetError());
+      return false;
+    }
+    else{
+      // Wait long enough for the audio to finish playing. Or not.
+      if( wait )
+        SDL_Delay(play_ms);
+      return true;
+    }
+  };
+
+public:
+  // Data.
+  LocalAudioQueue audio_queue; // Callback data.
+  SDL_AudioDeviceID dev;       // Device ID.
+  Uint32 wav_length;           // Length of the sound sample in bytes.
+  Uint8 *wav_buffer;           // Buffer containing the sound sample.
+  SDL_AudioSpec wav_spec;      // Full data on the sample.
+  int bytes_per_sample;        // Bytes in a single sample.
+  Uint32 play_ms;              // Length of sample in milliseconds.
+  bool ok;                     // Constructor worked.
+};
+
+#else
+// This needs at least SDL2 2.0.4.
 class PlayWAVSound
 {
 public:
@@ -237,6 +404,8 @@ public:
   Uint32 play_ms;         // Length of sample in milliseconds.
   bool ok;                // Constructor worked.
 };
+
+#endif // Modern PlayWAVSound class.
 
 // Forward declarations.
 void remove_from_display_list( DISPLAY_LIST* dlist,
@@ -1260,7 +1429,7 @@ int main (int ArgCount, char **Args)
   SDL_Log("Linked against SDL version %u.%u.%u.\n",
           linked.major, linked.minor, linked.patch);
 
-  // Initialise the drawing state.
+ // Initialise the drawing state.
   dstate.debug_mode = false;
   dstate.keep_on_eof = false;
   dstate.tex_atlas.valid = false;
@@ -1269,7 +1438,11 @@ int main (int ArgCount, char **Args)
   for( int i=0; i<MXF; i++ )
     dstate.fonts[i] = NULL;
   dstate.cur_font = 0;
+#ifdef ANCIENT
+  dstate.fontdir = "/usr/share/fonts/truetype/liberation";
+#else
   dstate.fontdir = "/usr/share/fonts/truetype/liberation2";
+#endif
   dstate.timer = TIMER_NOT_SET;
 
   std::string homedir(getpwuid(getuid())->pw_dir);
@@ -1348,7 +1521,9 @@ int main (int ArgCount, char **Args)
     return 1;    
   }
   SDL_SetWindowBordered(window, (! nodecor) ? SDL_TRUE : SDL_FALSE);
+#ifndef ANCIENT
   SDL_SetWindowAlwaysOnTop(window, (ontop) ? SDL_TRUE : SDL_FALSE);
+#endif
   SDL_SetWindowTitle(window, title.c_str());
   SDL_RaiseWindow(window);
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);

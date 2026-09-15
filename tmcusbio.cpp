@@ -49,6 +49,11 @@
 // Build:
 //   g++ -O0 -g -Wall -o tmcusbio tmcusbio.cpp -lusb-1.0
 //
+// This can also be built on an "ancient" Ubuntu 14.04 32 bit system with:
+//   g++ -O0 -g -Wall -DANCIENT -std=c++11 -o tmcusbio tmcusbio.cpp -lusb-1.0
+//
+//   NOTE: libusb on that system insists codes to libusb_strerror() be enums, not ints.
+//
 // Nick Glazzard 2026
 //-------------------
 
@@ -59,6 +64,12 @@
 #include <errno.h>
 
 #include "CLI11.hpp" // Gigantic, but useful.
+
+#ifdef ANCIENT
+#define ICAST (enum libusb_error)
+#else
+#define ICAST
+#endif
 
 static const int BUFFER_SIZE = 2048; // Should be multiple of wMaxPacketSize and divisible by 4. 2048 is "safe".
 static const int HDR_SIZE = 12;
@@ -118,8 +129,10 @@ public:
     else{
 
       // Optionally turn on very extensive debugging output.
+#ifndef ANCIENT
       if( debug_mode )
         libusb_set_option(ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_DEBUG);
+#endif
 
       // Open the desired device.
       handle = libusb_open_device_with_vid_pid(ctx, vendor_id, product_id);
@@ -277,7 +290,7 @@ public:
       strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
       fprintf(stderr, "TMCUSBIO, put_only(): error: %s\n... %s\n", 
               last_error_string,
-              libusb_strerror(status));
+              libusb_strerror(ICAST status));
       return status;
     }
 
@@ -336,7 +349,7 @@ public:
       strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
       fprintf(stderr, "query(): command out error (1): %s\n... %s\n", 
               last_error_string,
-              libusb_strerror(status));
+              libusb_strerror(ICAST status));
       return status;
     }
 
@@ -369,7 +382,7 @@ public:
         strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
         fprintf(stderr, "query(): request response error (2): %s\n... %s\n", 
                 last_error_string,
-                libusb_strerror(status));
+                libusb_strerror(ICAST status));
         return status;
       }
 
@@ -385,7 +398,7 @@ public:
         strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
         fprintf(stderr, "query(): read response error (3): %s\n... %s\n", 
                 last_error_string,
-                libusb_strerror(status));
+                libusb_strerror(ICAST status));
         return status;
       }
 
