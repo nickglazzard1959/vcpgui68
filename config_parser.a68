@@ -45,6 +45,14 @@ MODE CONFIG_PARSE = STRUCT(STRING config_file_name,
                            REF STRING_DICT config_dict,
                            STRING_LIST tables);
 
+BOOL g_config_parser_silent := FALSE;
+
+# Keep quiet about undefined keys defaulting, or not. #
+PROC config_set_silent_keys = (BOOL yes) VOID:
+(
+   g_config_parser_silent := yes
+);
+
 # Make a config file parser. #
 PROC make_config_parser = (STRING config_file_name) REF CONFIG_PARSE:
 (
@@ -402,7 +410,8 @@ PROC config_display_type = (STRING abbreviated) STRING:
 # Internal undefined key message helper. #
 PROC config_undefined_key_msg = (STRING key) VOID:
 (
-   put(stand error, ("Key [",key,"] has not been defined. Defaulting.",new line))
+   (NOT g_config_parser_silent |
+         put(stand error, ("Key [",key,"] has not been defined. Defaulting.",new line)))
 );
 
 # Internal wrong value message helper. #
