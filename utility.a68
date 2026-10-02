@@ -37,19 +37,72 @@ PROC sleep_void = (INT t) VOID:
    VOID(sleep(t))
 );
 
+# Get environment variables that many programs seem to need to run happily. #
+# At least XDG_RUNTIME_DIR and DISPLAY are needed. That seems to be all. #
+# Well ... finding .config/* needs HOME (e.g. MPV) #
+PROC get_run_envars = []STRING:
+(
+   []STRING envar_names = ("XDG_RUNTIME_DIR",
+                           "XDG_SESSION_DESKTOP", 
+                           "XDG_SESSION_TYPE", 
+                           "XDG_CURRENT_DESKTOP",
+                           "USER",
+                           "HOME",
+                           "DISPLAY");
+   []BOOL essential = (TRUE,
+                       FALSE,
+                       FALSE,
+                       FALSE,
+                       FALSE,
+                       TRUE,
+                       TRUE);
+   [ELEMS envar_names]STRING envars;
+   FOR i TO ELEMS envars
+   DO
+      STRING envalue = get env(envar_names[i]);
+      IF envalue = ""
+      THEN
+         IF essential[i]
+         THEN
+            put(stand error, ("get_run_envars(): Essential environment variable is not defined: ", 
+                              envar_names[i], new line));
+            stop
+         FI
+      ELSE
+         envars[i] := envar_names[i] + "=" + envalue
+      FI
+   OD;
+   envars
+);
+
+# Run a command. Any output will go directly to stand out and error. #
+PROC run_command = (STRING cmd) BOOL:
+(
+   BOOL retval := FALSE;
+   FLEX [1:0]STRING envars := get_run_envars;
+   INT pid := execve child("/bin/sh", ("sh", "-c", cmd), envars);
+   IF pid >= 0 
+   THEN
+      INT wstatus := wait pid(pid);
+      (wstatus >= 0 | retval := TRUE)
+   FI;
+   retval
+);
+
 # Run a command in sh and retrieve the output as a string. Adapted from a68g docs. #
 PROC run_command_get_output = (STRING cmd, REF STRING output) BOOL:
 (
    BOOL retval := FALSE;
+   FLEX [1:0]STRING envars := get_run_envars;
    IF STRING sh_cmd = " " + cmd + " 2>&1";
-      execve output("/bin/sh", ("sh", "-c", sh_cmd), "", output) >= 0
+      execve output("/bin/sh", ("sh", "-c", sh_cmd), envars, output) >= 0
    THEN
       retval := TRUE
    FI;
    retval
 );
 
-# Return a string denoting the OS being used (debian, macos or linux for now). #
+# Return a string denoting the OS being used (debian, ubuntu, macos or linux for now). #
 PROC get_os_name = STRING:
 (
    STRING retval := "unknown";
@@ -59,6 +112,9 @@ PROC get_os_name = STRING:
       IF string in string("Debian", NIL, uname_output)
       THEN
          retval := "debian"
+      ELIF string in string("Ubuntu", NIL, uname_output)
+      THEN
+         retval := "ubuntu"
       ELIF string in string("Darwin", NIL, uname_output)
       THEN
          retval := "macos"
@@ -68,6 +124,35 @@ PROC get_os_name = STRING:
       FI
    FI;
    retval
+);
+
+# Get the version of the operating system. Will not work for macos. #
+PROC get_os_version = STRING:
+(
+   CHAR dquot = REPR(34);
+   STRING retval := "unknown";
+   STRING cmd_output;
+   IF file is regular("/etc/os-release")
+   THEN
+      IF run_command_get_output("cat /etc/os-release | grep VERSION_ID", cmd_output)
+      THEN
+         IF string in string("VERSION_ID", NIL, cmd_output)
+         THEN
+            INT last_quote;
+            IF last char in string(dquot, last_quote, cmd_output)
+            THEN
+               retval := cmd_output[13:last_quote-1]
+            FI # last dquot found #
+         FI # VERSION_ID found. #
+      FI # os-release cat worked. #
+   FI; # os-release exists. #
+   retval
+);
+
+# Get the OS and version name. #
+PROC get_os_name_and_version = STRING:
+(
+   get_os_name + "_" + get_os_version
 );
 
 # Get the version of Algol 68 Genie being used. #
@@ -91,14 +176,25 @@ PROC a68g_version = STRING:
    version
 );
 
+# Print underlined string. #
+PROC print_underlined = (STRING s) VOID:
+(
+   print((newline, s, newline));
+   print(((ELEMS s)*"=", newline))
+);
+
 # Print a program title in a standard format. #
 PROC print_std_title = (STRING title) VOID:
 (
-   print((newline, title, newline));
-   print(((ELEMS title)*"=", newline));
+   print_underlined(title);
    print(("Running under ", a68g_version, newline))
 );
 
+# Clear screen of an ANSI terminal. #
+PROC clear_ansi_screen = VOID:
+(
+   print((REPR(27)+"[H"+REPR(27)+"[2J"))
+);
 
 # --------------------- #
 # Time arithmetic aids. #
@@ -349,6 +445,21 @@ PROC split_string = (STRING s, CHAR c) []STRING:
    return
 );
 
+# Join a row of strings together into a single string, separating each with character c. #
+PROC join_string = ([]STRING s, CHAR c) STRING:
+(
+   INT n_words := ELEMS s;
+   STRING result := "";
+
+   FOR i TO n_words
+   DO
+      result +:= s[i];
+      (i < n_words | result +:= c)
+   OD;
+
+   result
+);
+ 
 # Index of string in a row of strings. 0 if not found. #
 PROC string_in_row_of_strings = (STRING s, []STRING r) INT:
 (
@@ -1068,8 +1179,7 @@ PROC splitext = (STRING pathname) STRINGPAIR:
       # This mimics Python, although I'm not certain that is always desirable for this case. #
       (last char in string("/", slashpos, pathname) | slashpos +:= 1 | slashpos := 1);
       slashpos := clamp_int(slashpos, 1, ELEMS pathname);
-      BOOL multidot := count_char_occurrences(".", pathname[slashpos:]) > 1;
-      (multidot | first OF result := pathname; last OF result := "")
+      (string in string("..", NIL, pathname[slashpos:]) | first OF result := pathname; last OF result := "")
    ELSE
       first OF result := pathname
    FI;
@@ -1096,6 +1206,29 @@ PROC splitpath = (STRING pathname) STRINGPAIR:
                first OF result := pathname)
    ELSE
       first OF result := pathname
+   FI;
+
+   done:
+   result   
+);
+
+# Split a string at the first occurrence of a given character. #
+PROC splitfirst = (STRING s, CHAR c) STRINGPAIR:
+(
+   INT charpos;
+   STRINGPAIR result := ("", "");
+   INT n := ELEMS s;
+
+   (s = "" | done);
+
+   IF char in string(c, charpos, s)
+   THEN
+      (charpos < n AND charpos > 1 | 
+            first OF result := s[:charpos-1];
+            last OF result := s[charpos+1:] |
+               first OF result := s)
+   ELSE
+      first OF result := s
    FI;
 
    done:
@@ -1348,7 +1481,6 @@ PROC ieb = (BOOL status) VOID:
 (
    (NOT status | put(stand error, ("Internal error detected. Giving up.", new line)); stop)
 );
-
 
 
 # ------ #

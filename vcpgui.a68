@@ -2486,10 +2486,10 @@ PROC open_gui = (STRING title, INT width, height) PIPE:
    # Set configuration. Use a configuration file (vcpgui.ini) and have some of it be OS dependent. #
    # Contents of file: #
    # talfile = "dsurf.tal" (Name of texture atlas file) #
-   # [debian]  (Start of OS specific table. debian, macos, linux) #
+   # [debian_12]  (Start of OS specific table. debian, macos, linux) #
    # font_name = "LiberationSans-Regular.ttf" (Name of TrueType font to use) #
    # font_dir = "/usr/share/fonts/truetype/liberation2" (Directory where font_name resides) #
-   STRING os_name := get_os_name;
+   STRING os_name := get_os_name_and_version;
    config_set_silent_keys(TRUE); # No error output if keys are undefined. #
    REF CONFIG_PARSE config_parser := make_config_parser("./vcpgui.ini");
    VOID(parse_config_file(config_parser)); # If the .ini file doesn't exist, keep going. #

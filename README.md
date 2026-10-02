@@ -145,9 +145,15 @@ function which instantiates the defined components, then run an event loop which
 fields all user interactions with the GUI and calls any associated callback functions.
 
 Note that one omission is there are no "layout automation" features. There are functions
-which will calculate the sizes of declared componnents and generate coordinates to
+which will calculate the sizes of declared components and generate coordinates to
 distribute or align components relative to others, but the user must specify coordinates
 for each component (actually the centre positions).
+
+Some essential "resources" used by VCPGUI and DSURF (see below) are specified in a
+configuration file called `vcpgui.ini`. If this is missing, defaults suitable for
+Debian 12 are used. It should always be present and should contain operating system
+specific tables as needed. This file is described in detail in the "VCPGUI configuration file"
+section below.
 
 ### Helper programs
 
@@ -164,14 +170,17 @@ with code written in Algol 68 over pipes. The following helper programs exist:
   fast enough (based on current applications). As noted, DSURF uses SDL 2 to do its work.
   Most GUI elements are drawn with texture mapped rectangles. The textures used are stored
   in two files: a PNG file containing all the images (the texture atlas image) and a
-  file that describes the locations of named textures in the texture atlas image. The default
-  files are: `dsurf.png` and `dsurf.tal` (in fact, `dsurf.tal` is currently "hardwired" in
-  vcpgui.a68, `open_gui()`, the PNG file name is specified in `dsurf.tal`, but is effectively
-  also "hardwired" at present). Much of the appearance of the GUI can be changed
+  file that describes the locations of named textures in the texture atlas image -- this is
+  the *texture atlas* or `.tal` file. This file is also where the PNG file is specified. The default
+  files are: `dsurf.png` and `dsurf.tal`  Much of the appearance of the GUI can be changed
   simply by changing these files (or even just the PNG file). For example, LED numeric displays
   could easily be created instead of Nixie tube displays. Note that the PNG image has an alpha
   channel, which is essential for certain effects. DSURF also reads the file `dsurf.wav`, which
-  provides a "clicking sound" when buttons are "pushed".
+  provides a "clicking sound" when buttons are "pushed". The files used can be set in a
+  configuration file: `vcpgui.ini`. This is read by the Algol 68 VCPGUI code and controls how
+  DSURF is started. In addition to specifying the texture atlas to use, it also tells DSURF
+  where to find the TrueType font it uses for labels on GUI components. See the 
+  "VCPGUI configuration file" section below for more information.
 - SerialIO (`serialio.cpp`) is responsible for sending and receiving data on a serial line
   (usually `/dev/ttyACMn` on Linux) at a specified baud rate, parity and number of data and 
   stop bits. Again, the A68 code simply writes what it wants to send to stdin of SerialIO and
@@ -201,6 +210,29 @@ with code written in Algol 68 over pipes. The following helper programs exist:
 One benefit of having helper programs of this kind is that SerialIO and TMCUSBIO can be run
 from the command line directly and the user can simply type commands to be sent to an instrument
 and view the responses. This may occasionally be useful.
+
+### VCPGUI configuration file
+
+This is called `vcpgui.ini` and is in the format understood by `config_parser.a68` (see below).
+It serves two purposes:
+
+1. It allows texture atlas files with user chosen names to be used instead of `dsurf.tal`.
+2. It allows operating system specific configuration. This is currently used to specify
+   where to find the default TrueType font (the font directory) and which specific font
+   file should be used. The operating system is also qualified by its major version number,
+   as things can change from version to version, unfortunately.
+   
+The current `vcpgui.ini` file contains:
+
+```
+# Configuration for vcpgui and dsurf.
+
+talfile = "dsurf.tal"
+
+[debian_12]
+font_dir = "/usr/share/fonts/truetype/liberation2"
+font_name = "LiberationSans-Regular.ttf"
+```
 
 ### General purpose preludes
 

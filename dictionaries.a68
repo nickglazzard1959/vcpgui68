@@ -22,8 +22,8 @@ NOTE: The dictionary code began with the associative array example for Algol 68 
 Rosetta Code, which can be found here: 
 https://rosettacode.org/wiki/Associative_array/Iteration#ALGOL_68
 
-This file also contains implementations of some other basic data structures.
-Currently lists of strings.
+This file also contains implementations of some other basic data structures and
+algorithms. Currently lists of strings and some additional sorting algorithms.
 
 Author: Nick Glazzard 2026
 --------------------------
@@ -834,6 +834,85 @@ PROC permuted_integers = (INT n, INT seed) []INT:
    OD;
    array_of_n
 );
+
+
+# ------------------- #
+# Sorting algorithms. #
+# ------------------- #
+
+# Index sort strings using insertion sort. Return a row of sorted indices. #
+# Insertion sort is fine for smallish arrays (100s of elements). #
+# Note that this uses the Algol 68 Genie extension ANDF to prevent the elaboration #
+# of the second term of an AND if the first term yields FALSE. With AND, both terms #
+# are evaluated collaterally, resulting in an index out of bounds. #
+PROC isort_strings = ([]STRING strings) []INT:
+(
+   INT n := ELEMS strings;
+   [n]INT indices;
+
+   FOR i TO n DO indices[i] := i OD;
+
+   FOR i FROM 2 TO n
+   DO
+      INT index := indices[i];
+      INT j := i - 1;
+      WHILE j >= 1 ANDF strings[indices[j]] > strings[index]
+      DO
+         indices[j+1] := indices[j];
+         j -:= 1
+      OD;
+      indices[j+1] := index
+   OD;
+
+   indices
+);
+
+# Index sort reals using insertion sort. Return a row of sorted indices. #
+PROC isort_reals = ([]STRING reals) []INT:
+(
+   INT n := ELEMS reals;
+   [n]INT indices;
+
+   FOR i TO n DO indices[i] := i OD;
+
+   FOR i FROM 2 TO n
+   DO
+      INT index := indices[i];
+      INT j := i - 1;
+      WHILE j >= 1 ANDF reals[indices[j]] > reals[index]
+      DO
+         indices[j+1] := indices[j];
+         j -:= 1
+      OD;
+      indices[j+1] := index
+   OD;
+
+   indices
+);
+
+# Index sort ints using insertion sort. Return a row of sorted indices. #
+PROC isort_ints = ([]STRING ints) []INT:
+(
+   INT n := ELEMS ints;
+   [n]INT indices;
+
+   FOR i TO n DO indices[i] := i OD;
+
+   FOR i FROM 2 TO n
+   DO
+      INT index := indices[i];
+      INT j := i - 1;
+      WHILE j >= 1 ANDF ints[indices[j]] > ints[index]
+      DO
+         indices[j+1] := indices[j];
+         j -:= 1
+      OD;
+      indices[j+1] := index
+   OD;
+
+   indices
+);
+
 
 # ------ #
 # TESTS. #
