@@ -37,6 +37,12 @@ PROC sleep_void = (INT t) VOID:
    VOID(sleep(t))
 );
 
+# Get the user's HOME directory (from HOME environment variable). With a trailing /. #
+PROC get_home_dir = STRING:
+(
+   get env("HOME") + "/"
+);
+
 # Get environment variables that many programs seem to need to run happily. #
 # At least XDG_RUNTIME_DIR and DISPLAY are needed. That seems to be all. #
 # Well ... finding .config/* needs HOME (e.g. MPV) #
@@ -554,6 +560,32 @@ PROC strip_char = (STRING s, CHAR c) STRING:
    return 
 );
 
+# Replace the first or all occurrences of character old with character new in string s. #
+PROC replace_char = (STRING s, CHAR old, CHAR new, BOOL all) STRING:
+(
+   STRING retval := s;
+   FOR i TO ELEMS s
+   DO
+      (s[i] = old | retval[i] := new; (NOT all | break1))
+   OD;
+   break1:
+   retval
+);
+
+# Replace the first or all occurrences of string old with string new in string s. #
+PROC replace_string = (STRING s, STRING old, STRING new, BOOL all) STRING:
+(
+   INT pos;
+   STRING changed := s;
+   (string in string(old, pos, s) |
+         STRING before := s[:pos-1];
+         STRING after := s[pos+(ELEMS old):];
+         changed := before + new + after;
+         (all | changed := replace_string(changed, old, new, all))
+   );
+   changed
+);
+
 # Check if a string is in a comma separated list of valid strings. #
 PROC check_valid = (STRING test, STRING valid) BOOL:
 (
@@ -1064,6 +1096,7 @@ PROC ends_with = (STRING s, STRING b) BOOL:
 # at the time of the first i/o operation. This function behaves more like Unix fopen()/open(). #
 # Note that modes r and w do not allow seeking or binary i/o. Use r+ or w+ for those capabilities. #
 # HOWEVER: binary does NOT mean 'raw bytes'. It is much more like FORTRAN UNFORMATTED. #
+# Now also supports appending with a and a+. #
 PROC open_file = (STRING filename, STRING mode, REF FILE fio) INT:
 (
    reset errno; # Set system error to 0. #
@@ -1085,7 +1118,7 @@ PROC open_file = (STRING filename, STRING mode, REF FILE fio) INT:
       VOID(open(fio, filename, stand in channel));
       (fopen_error | ret_error := errno; done)
 
-   # Read and write. File must already exist. #
+   # Read, write, seek. File must already exist. #
    ELIF mode = "r+"
    THEN
       (NOT file is regular(filename) | ret_error := errno; done);
@@ -1098,10 +1131,22 @@ PROC open_file = (STRING filename, STRING mode, REF FILE fio) INT:
       VOID(open(fio, filename, stand out channel));
       (fopen_error | ret_error := errno; done)
 
-   # Read and write. File may not already exist. #
+   # Write, read, seek. File may not already exist. #
    ELIF mode = "w+"
    THEN
       VOID(open(fio, filename, stand back channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Appending. #
+   ELIF mode = "a"
+   THEN
+      VOID(append(fio, filename, stand out channel));
+      (fopen_error | ret_error := errno; done)
+
+   # Append, read, seek. File may not already exist. #
+   ELIF mode = "a+"
+   THEN
+      VOID(append(fio, filename, stand back channel));
       (fopen_error | ret_error := errno; done)
 
    # Unsupported file mode string. #
@@ -1155,6 +1200,23 @@ PROC open_chardev = (STRING devname, STRING mode, REF FILE fio) INT:
 
    done:
    ret_error
+);
+
+# Append all elements of a row of strings to a file called filename. #
+# If that file doesn't exist, create it. #
+PROC append_lines = ([]STRING lines, STRING filename) INT:
+(
+   FILE fout;
+   INT retval := open_file(filename, "a", fout);
+   IF retval = 0
+   THEN
+      FOR i TO ELEMS lines
+      DO
+         put(fout, (lines[i], new line))
+      OD;
+      close(fout)
+   FI;
+   retval
 );
 
 # Mode for a pair of strings. Very useful for file paths and file names. #
@@ -1235,6 +1297,29 @@ PROC splitfirst = (STRING s, CHAR c) STRINGPAIR:
    result   
 );
 
+# Split a string at the last occurrence of a given character. #
+PROC splitlast = (STRING s, CHAR c) STRINGPAIR:
+(
+   INT charpos;
+   STRINGPAIR result := ("", "");
+   INT n := ELEMS s;
+
+   (s = "" | done);
+
+   IF last char in string(c, charpos, s)
+   THEN
+      (charpos < n AND charpos > 1 | 
+            first OF result := s[:charpos-1];
+            last OF result := s[charpos+1:] |
+               first OF result := s)
+   ELSE
+      first OF result := s
+   FI;
+
+   done:
+   result   
+);
+
 # Join a string pair into a string. #
 PROC joinpair = (STRINGPAIR pair) STRING:
 (
@@ -1279,6 +1364,40 @@ PROC copy_file_contents = (STRING filename, REF FILE fout, BOOL trimspaces) BOOL
    done:
    retval
 );
+
+# Function mode for functions called by all_files to process a file. #
+# If this function returns TRUE, stop traversing the file tree. #
+MODE ALL_FILES_PROC = PROC (STRING) BOOL;
+
+# Find files with specified extensions in a directory tree and potentially #
+# run a function on them. If no_recurse, do not descend into directories (single level). #
+# If yield_dirs, call the action function on directory names as well as leaf files. #
+PROC all_files = (STRING root, STRING exts, ALL_FILES_PROC action, BOOL no_recurse, BOOL yield_dirs) VOID:
+(
+   FLEX [1:0]STRING cur_files := SORT get directory(root);
+   FOR i TO ELEMS cur_files
+   DO
+      IF NOT (cur_files[i] = "." OR cur_files[i] = "..")
+      THEN
+         STRING cur_file := root + "/" + cur_files[i];
+         IF file is directory(cur_file) AND NOT no_recurse
+         THEN
+            (yield_dirs | (action(cur_file) | done));
+            all_files(cur_file, exts, action, no_recurse, yield_dirs)
+         ELSE
+            STRINGPAIR name_ext := splitext(cur_file);
+            IF exts = "" ORF check_valid(last OF name_ext, exts)
+            THEN
+               (action(cur_file) | done)
+            FI
+         FI
+      FI
+   OD;
+
+   done:
+   SKIP
+);
+
 
 # ----------- #
 # Array aids. #
