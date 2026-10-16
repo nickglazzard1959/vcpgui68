@@ -202,6 +202,22 @@ PROC clear_ansi_screen = VOID:
    print((REPR(27)+"[H"+REPR(27)+"[2J"))
 );
 
+# Set the title bar of an ANSI terminal. Perhaps. #
+PROC set_ansi_title = (STRING title) VOID:
+(
+   print((REPR(27)+"]0;"+title+REPR(7)))
+);
+
+# Get time and date string: yyyy/mm/dd hh:mm:ss #
+PROC date_time_string = (BOOL utc) STRING:
+(
+   [8]INT it := (utc | utc time | local time);
+   STRING retval;
+   putsf(retval, ($4d,"/", 2d, "/", 2d, " ", 2d, ":", 2d, ":", 2d$, 
+                  it[1], it[2], it[3], it[4], it[5], it[6]));
+   retval
+);
+
 # --------------------- #
 # Time arithmetic aids. #
 # --------------------- #
@@ -577,11 +593,13 @@ PROC replace_string = (STRING s, STRING old, STRING new, BOOL all) STRING:
 (
    INT pos;
    STRING changed := s;
-   (string in string(old, pos, s) |
-         STRING before := s[:pos-1];
-         STRING after := s[pos+(ELEMS old):];
-         changed := before + new + after;
-         (all | changed := replace_string(changed, old, new, all))
+   (old /= "" | # Beware  - pathological possibility => stack overflow. #
+         (string in string(old, pos, s) |
+               STRING before := s[:pos-1];
+               STRING after := s[pos+(ELEMS old):];
+               changed := before + new + after;
+               (all | changed := replace_string(changed, old, new, all))
+         )
    );
    changed
 );
@@ -1239,9 +1257,10 @@ PROC splitext = (STRING pathname) STRINGPAIR:
 
       # Try to handle pathological cases like a/b....jpg #
       # This mimics Python, although I'm not certain that is always desirable for this case. #
+      # In fact, after some unfortunate experiences, I am pretty sure it is a bad idea. #
       (last char in string("/", slashpos, pathname) | slashpos +:= 1 | slashpos := 1);
       slashpos := clamp_int(slashpos, 1, ELEMS pathname);
-      (string in string("..", NIL, pathname[slashpos:]) | first OF result := pathname; last OF result := "")
+      (string in string("."+(last OF result), NIL, pathname[slashpos:]) | first OF result := pathname; last OF result := "")
    ELSE
       first OF result := pathname
    FI;
@@ -1272,6 +1291,16 @@ PROC splitpath = (STRING pathname) STRINGPAIR:
 
    done:
    result   
+);
+
+# Do some (but by no means all) clean up of a path to make in canonical. #
+PROC cleanpath = (STRING pathname) STRING:
+(
+   STRING result := pathname;
+   (begins_with(pathname, "./") | result := get pwd + pathname[2:]);
+   (begins_with(pathname, "~/") | result := get_home_dir + pathname[3:]);
+   # Need to deal with ../ sequences ... but not yet! #
+   result
 );
 
 # Split a string at the first occurrence of a given character. #
@@ -1369,12 +1398,27 @@ PROC copy_file_contents = (STRING filename, REF FILE fout, BOOL trimspaces) BOOL
 # If this function returns TRUE, stop traversing the file tree. #
 MODE ALL_FILES_PROC = PROC (STRING) BOOL;
 
+# Function mode for sorting an array of strings. #
+MODE STRING_SORT_PROC = PROC ([]STRING) []STRING;
+
+PROC default_string_sort = ([]STRING in) []STRING:
+(
+   SORT in
+);
+
 # Find files with specified extensions in a directory tree and potentially #
 # run a function on them. If no_recurse, do not descend into directories (single level). #
 # If yield_dirs, call the action function on directory names as well as leaf files. #
 PROC all_files = (STRING root, STRING exts, ALL_FILES_PROC action, BOOL no_recurse, BOOL yield_dirs) VOID:
 (
-   FLEX [1:0]STRING cur_files := SORT get directory(root);
+   all_files_ex(root, exts, action, no_recurse, yield_dirs, default_string_sort)
+);
+
+# As all_files(), but allow a custom sorting function for file names be specified. #
+PROC all_files_ex = (STRING root, STRING exts, ALL_FILES_PROC action, BOOL no_recurse, BOOL yield_dirs,
+                     STRING_SORT_PROC sorter) VOID:
+(
+   FLEX [1:0]STRING cur_files := sorter( get directory(root) );
    FOR i TO ELEMS cur_files
    DO
       IF NOT (cur_files[i] = "." OR cur_files[i] = "..")
@@ -1383,7 +1427,7 @@ PROC all_files = (STRING root, STRING exts, ALL_FILES_PROC action, BOOL no_recur
          IF file is directory(cur_file) AND NOT no_recurse
          THEN
             (yield_dirs | (action(cur_file) | done));
-            all_files(cur_file, exts, action, no_recurse, yield_dirs)
+            all_files_ex(cur_file, exts, action, no_recurse, yield_dirs, sorter)
          ELSE
             STRINGPAIR name_ext := splitext(cur_file);
             IF exts = "" ORF check_valid(last OF name_ext, exts)
@@ -1396,6 +1440,25 @@ PROC all_files = (STRING root, STRING exts, ALL_FILES_PROC action, BOOL no_recur
 
    done:
    SKIP
+);
+
+# Return a string array containing names of files with specified extensions starting at root. #
+PROC all_files_array = (STRING root, STRING exts, BOOL no_recurse, BOOL trim_root) []STRING:
+(
+   REF STRING_LIST files := STRING_LIST_INIT LOC STRING_LIST;
+   
+   PROC appender = (STRING name) BOOL:
+   (
+      (trim_root |
+            INT splitat := ELEMS root + 1;
+            (name[splitat] = "/" | splitat +:= 1);
+            files +:= name[splitat:] |
+               files +:= name);
+      FALSE
+   );
+
+   all_files(root, exts, appender, no_recurse, FALSE);
+   string_list_as_array(files)
 );
 
 
