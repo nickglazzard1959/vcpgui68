@@ -1461,6 +1461,23 @@ PROC all_files_array = (STRING root, STRING exts, BOOL no_recurse, BOOL trim_roo
    string_list_as_array(files)
 );
 
+# Simple filter by extension on get directory. Always return directory names. #
+PROC get_directory_filtered = (STRING root, STRING exts) []STRING:
+(
+   FLEX [1:0]STRING orgdir := get directory(root);
+   REF STRING_LIST files := STRING_LIST_INIT LOC STRING_LIST;
+
+   FOR i TO ELEMS orgdir
+   DO
+      BOOL ignore := orgdir[i] = "." OR orgdir[i] = "..";
+      BOOL is_directory := file is directory(root+"/"+orgdir[i]);
+      STRINGPAIR name_ext := splitext(orgdir[i]);
+      (((exts = "" ORF check_valid(last OF name_ext, exts)) AND NOT ignore) OR is_directory | files +:= orgdir[i])
+   OD;
+   
+   string_list_as_array(files)
+);
+
 
 # ----------- #
 # Array aids. #
