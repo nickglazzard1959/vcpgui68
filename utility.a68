@@ -18,6 +18,8 @@ Author: Nick Glazzard 2026
 --------------------------
 COMMENT
 
+PR read "dictionaries.a68" PR
+
 # --------------------------- #
 # Sundry and OS related aids. #
 # --------------------------- #
@@ -54,12 +56,14 @@ PROC get_run_envars = []STRING:
                            "XDG_CURRENT_DESKTOP",
                            "USER",
                            "HOME",
+                           "PATH",
                            "DISPLAY");
    []BOOL essential = (TRUE,
                        FALSE,
                        FALSE,
                        FALSE,
                        FALSE,
+                       TRUE,
                        TRUE,
                        TRUE);
    [ELEMS envar_names]STRING envars;
@@ -81,16 +85,31 @@ PROC get_run_envars = []STRING:
    envars
 );
 
-# Run a command. Any output will go directly to stand out and error. #
+# Run a command. Any output will go directly to stand out and error. Return TRUE if cmd return status is 0. #
 PROC run_command = (STRING cmd) BOOL:
 (
    BOOL retval := FALSE;
    FLEX [1:0]STRING envars := get_run_envars;
-   INT pid := execve child("/bin/sh", ("sh", "-c", cmd), envars);
+   INT pid := execve child("/bin/sh", ("sh", "-c", cmd+"; ST=$?; exit $ST"), envars);
    IF pid >= 0 
    THEN
       INT wstatus := wait pid(pid);
-      (wstatus >= 0 | retval := TRUE)
+      retval := (wstatus = 0)
+   FI;
+   retval
+);
+
+# Run a command in the background. Any output will go directly to stand out and error. #
+# Return TRUE if cmd return status is 0. #
+PROC run_command_detached = (STRING cmd) BOOL:
+(
+   BOOL retval := FALSE;
+   FLEX [1:0]STRING envars := get_run_envars;
+   INT pid := execve child("/bin/sh", ("sh", "-c", cmd+" &"), envars);
+   IF pid >= 0 
+   THEN
+      INT wstatus := wait pid(pid);
+      retval := (wstatus = 0)
    FI;
    retval
 );
@@ -106,6 +125,13 @@ PROC run_command_get_output = (STRING cmd, REF STRING output) BOOL:
       retval := TRUE
    FI;
    retval
+);
+
+# Check if a command exists on this machine. #
+PROC command_exists = (STRING cmd) BOOL:
+(
+   STRING check_cmd := "command -v " + cmd + " > /dev/null";
+   run_command(check_cmd)
 );
 
 # Return a string denoting the OS being used (debian, ubuntu, macos or linux for now). #
@@ -592,15 +618,20 @@ PROC replace_char = (STRING s, CHAR old, CHAR new, BOOL all) STRING:
 PROC replace_string = (STRING s, STRING old, STRING new, BOOL all) STRING:
 (
    INT pos;
-   STRING changed := s;
-   (old /= "" | # Beware  - pathological possibility => stack overflow. #
-         (string in string(old, pos, s) |
-               STRING before := s[:pos-1];
-               STRING after := s[pos+(ELEMS old):];
-               changed := before + new + after;
-               (all | changed := replace_string(changed, old, new, all))
-         )
-   );
+   INT start := 1;
+   STRING changed := "";
+   (old = "" | break1); # Beware  - pathological possibility. # 
+   INT n_old := ELEMS old;
+   WHILE string in string(old, pos, s[start:])
+   DO
+      pos +:= start - 1;
+      STRING before := s[start:pos-1];
+      changed +:= (before + new);
+      start := pos + n_old;
+      (NOT all | break1)
+   OD;
+   break1:
+   changed +:= s[start:];
    changed
 );
 
@@ -1418,6 +1449,10 @@ PROC all_files = (STRING root, STRING exts, ALL_FILES_PROC action, BOOL no_recur
 PROC all_files_ex = (STRING root, STRING exts, ALL_FILES_PROC action, BOOL no_recurse, BOOL yield_dirs,
                      STRING_SORT_PROC sorter) VOID:
 (
+   (NOT file is directory(root) |
+         put(stand error, ("all_files_ex(): Supplied root is not a directory (or does not exist).", new line));
+         done
+   );
    FLEX [1:0]STRING cur_files := sorter( get directory(root) );
    FOR i TO ELEMS cur_files
    DO
@@ -1478,6 +1513,60 @@ PROC get_directory_filtered = (STRING root, STRING exts) []STRING:
    string_list_as_array(files)
 );
 
+# Create a directory (all elements) if it does not exist. #
+PROC create_directory = (STRING path) BOOL:
+(
+   BOOL retval := TRUE;
+   STRING cpath := cleanpath(path);
+
+   IF NOT file is directory(cpath)
+   THEN
+      retval := run_command("mkdir -p " + cpath)
+   FI;
+
+   retval
+);
+
+# Create a symbolic link if it does not exist. #
+PROC create_symlink = (STRING existing_file, STRING new_symlink) BOOL:
+(
+   BOOL retval := TRUE;
+   STRING cexisting_file := cleanpath(existing_file);
+   STRING cnew_symlink := cleanpath(new_symlink);
+
+   IF (file is regular(cexisting_file) AND NOT file is link(cnew_symlink) AND NOT file is regular(cnew_symlink))
+   THEN
+      retval := run_command("ln -s  " + cexisting_file + " " + cnew_symlink)
+   FI;
+
+   retval
+);
+
+# Rename a file. #
+PROC rename_file = (STRING old_name, STRING new_name) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF file is regular(old_name)
+   THEN
+      retval := run_command("mv " + old_name + " " + new_name)
+   FI;
+
+   retval
+);
+
+# Delete a file. #
+PROC delete_file = (STRING name, BOOL force) BOOL:
+(
+   BOOL retval := FALSE;
+
+   IF file is regular(name)
+   THEN
+      retval := run_command("rm " + (force | "-f " | "" ) + name)
+   FI;
+
+   retval
+);
 
 # ----------- #
 # Array aids. #
@@ -1659,6 +1748,69 @@ OP ARRAYEMPTY = ([,]REAL array) BOOL:
 );
 
 
+# ---------------------------------------------- #
+# Minimal image processing based on ImageMagick. #
+# ---------------------------------------------- #
+
+STRING global_convert_pgm := "";
+STRING global_display_pgm := "";
+
+# Get the name of the convert program that works here (sigh). #
+PROC image_get_convert_name = STRING:
+(
+   STRING retval := "";
+   IF global_convert_pgm = ""
+   THEN
+      (command_exists("magick") | retval := "magick" | 
+            (command_exists("convert") | retval := "convert"));
+      global_convert_pgm := retval
+   ELSE
+      retval := global_convert_pgm
+   FI;
+   retval
+);
+
+# Scale an image in a file to a specifed width. Put result in another file. #
+PROC image_resize_to_width = (STRING infile, INT width, STRING outfile) BOOL:
+(
+   BOOL retval := TRUE;
+   STRING convert := image_get_convert_name;
+   (convert = "" | retval := FALSE |
+         STRING cmd := convert + " " + infile + " -resize " + wint(width) + "x " + outfile;
+         retval := run_command(cmd)
+   );
+   retval
+);
+
+# Get the name of the display program that works here (sigh). #
+PROC image_get_display_name = STRING:
+(
+   STRING retval := "";
+   IF global_display_pgm = ""
+   THEN
+      (command_exists("nsxiv") | retval := "nsxiv" |
+            (command_exists("magick") | retval := "magick display" | 
+                  (command_exists("convert") | retval := "convert")));
+      global_display_pgm := retval
+   ELSE
+      retval := global_display_pgm
+   FI;
+   retval
+);
+
+# Display an image from a file. #
+PROC image_display = (STRING name, BOOL detach) BOOL:
+(
+   BOOL retval := TRUE;
+   STRING display := image_get_display_name;
+   (display = "" | retval := FALSE |
+         STRING cmd := display + " " + name;
+         retval := (detach | run_command_detached(cmd) | run_command(cmd))
+   );
+   retval
+);
+
+
 # -------------------- #
 # Error handling aids. #
 # -------------------- #
@@ -1681,6 +1833,11 @@ PROC ieb = (BOOL status) VOID:
    (NOT status | put(stand error, ("Internal error detected. Giving up.", new line)); stop)
 );
 
+# As ieb() but do not abort! Desperate times ... #
+PROC iwb = (BOOL status) VOID:
+(
+   (NOT status | put(stand error, ("WARNING! Internal error detected. Carrying on anyway.", new line)))
+);
 
 # ------ #
 # TESTS. #

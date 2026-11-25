@@ -96,6 +96,7 @@ Open failed.", new line));
    # ranging in that case. This may work for the current function, at least.  #
    IF reset 
    THEN
+      put(stand error, ("**** Resetting ****", new line));
       ie(put_usbtmc(p, "*RST"));
       sleep_void(5)
 

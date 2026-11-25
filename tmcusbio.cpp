@@ -58,6 +58,7 @@
 //-------------------
 
 #include <libusb-1.0/libusb.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -114,7 +115,7 @@ public:
     out_endpoint = 0;
     in_endpoint = 0;
     transaction_no = 1;
-    timeout = 5000;
+    timeout = 2000; //5000;
     in_chunk_size = 0;
     out_chunk_size = 0;
     memset(last_error_string, 0, sizeof(last_error_string));
@@ -144,6 +145,9 @@ public:
 
       // Open worked ...
       else{
+        // Reset the device? This does seem to help.
+        libusb_reset_device(handle);
+        
         // Detach the kernel driver (usbtmc) if it is active.
         if( libusb_kernel_driver_active(handle, 0) == 1 )
           libusb_detach_kernel_driver(handle, 0);
@@ -281,18 +285,40 @@ public:
 
     // Send to the device.
     int transferred = 0;
-    int status = libusb_bulk_transfer(handle,
-                                      out_endpoint,
-                                      buffer, HDR_SIZE+n_chars,
-                                      &transferred,
-                                      timeout);
-    if( 0 != status ){
-      strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
-      fprintf(stderr, "TMCUSBIO, put_only(): error: %s\n... %s\n", 
-              last_error_string,
-              libusb_strerror(ICAST status));
-      return status;
-    }
+    int max_retries = 10;
+    for( int i_repeat=0; i_repeat<=max_retries; i_repeat++) {
+
+      int status = libusb_bulk_transfer(handle,
+                                        out_endpoint,
+                                        buffer, HDR_SIZE+n_chars,
+                                        &transferred,
+                                        timeout);
+      if( 0 != status ){
+        if( (status == LIBUSB_ERROR_PIPE ||
+             status == LIBUSB_ERROR_TIMEOUT ||
+             status == LIBUSB_ERROR_TIMEOUT) && (i_repeat < max_retries) ){
+          if( status == LIBUSB_ERROR_PIPE ){
+            //fprintf(stderr,"@+* (%d)\n", i_repeat);
+            libusb_clear_halt(handle, out_endpoint);
+            //libusb_clear_halt(handle, in_endpoint);
+          }
+          //else
+          //  fprintf(stderr,"@!* (%d)\n", i_repeat);
+          usleep(150000);
+          continue; // Next retry attempt.
+        }
+        else{
+          strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
+          fprintf(stderr, "query(): request response error (2): %s\n... %s\n", 
+                  last_error_string,
+                  libusb_strerror(ICAST status));
+          return status;
+        }
+      }
+
+      // If we get here, everything worked. Exit retry loop.
+      break;
+    } // End of send retry loop.      
 
     // Bump the transaction count.
     bump_transaction();
@@ -371,36 +397,107 @@ public:
       // Construct a request response header.
       make_header(bytes_chunk, false, false);
 
-      // Send the header (no data payload).
-      status = libusb_bulk_transfer(handle,
-                                    out_endpoint,
-                                    header,
-                                    HDR_SIZE,
-                                    &transferred,
-                                    timeout);
+      // Try to recover from certain error conditions by retrying after clearing
+      // end point stall conditions. This does seem to help (sometimes).
+      // I am not sure if the repeats should be done for each part of the transfer
+      // separately of the whole thing should be repeated. Seperately seems best.
+      // (All errors occur on the read transfer, actually).
+      int max_retries = 10;
+      for( int i_repeat=0; i_repeat<=max_retries; i_repeat++) {
+          
+        // Send the header (no data payload)/
+        status = libusb_bulk_transfer(handle,
+                                      out_endpoint,
+                                      header,
+                                      HDR_SIZE,
+                                      &transferred,
+                                      timeout);
+        if( 0 != status ){
+          if( (status == LIBUSB_ERROR_PIPE ||
+               status == LIBUSB_ERROR_TIMEOUT ||
+               status == LIBUSB_ERROR_TIMEOUT) && (i_repeat < max_retries) ){
+            if( status == LIBUSB_ERROR_PIPE ){
+              //fprintf(stderr,"+* (%d)\n", i_repeat);
+              libusb_clear_halt(handle, out_endpoint);
+              //libusb_clear_halt(handle, in_endpoint);
+            }
+            //else
+            //  fprintf(stderr,"!* (%d)\n", i_repeat);
+            usleep(150000);
+            continue; // Next retry attempt.
+          }
+          else{
+            strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
+            fprintf(stderr, "query(): request response error (2): %s\n... %s\n", 
+                    last_error_string,
+                    libusb_strerror(ICAST status));
+            return status;
+          }
+        }
+
+        // If we get here, everything worked. Exit retry loop.
+        break;
+      } // End of send retry loop.
+
+      // Wait 500 ms. (This is very long, but 50 ms doesn't seem to help and this does).
+      // Put a short usleep / nanosleep right after your OUT libusb_bulk_transfer
+      // (sending the SCPI query) and before your IN libusb_bulk_transfer (reading the response).
+      // This gives the Rigol's internal processor time to prepare the USB buffer before
+      // the host starts hammering it with IN tokens.
+      //fprintf(stderr, "+\n");
+      status = usleep(500000);
       if( 0 != status ){
-        strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
-        fprintf(stderr, "query(): request response error (2): %s\n... %s\n", 
-                last_error_string,
-                libusb_strerror(ICAST status));
+        fprintf(stderr, "query(): micro-sleep (1) failed!\n");
         return status;
       }
 
-      // Read from the device.
-      memset(buffer, 0, BUFFER_SIZE );
-      status = libusb_bulk_transfer(handle,
-                                    in_endpoint,
-                                    buffer,
-                                    BUFFER_SIZE,
-                                    &transferred,
-                                    timeout);
-      if( 0 != status ){
-        strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
-        fprintf(stderr, "query(): read response error (3): %s\n... %s\n", 
-                last_error_string,
-                libusb_strerror(ICAST status));
-        return status;
-      }
+      // Retry loop for read portion of the transaction.
+      for( int i_repeat=0; i_repeat<=max_retries; i_repeat++) {
+        
+        // Read from the device.
+        memset(buffer, 0, BUFFER_SIZE );
+        status = libusb_bulk_transfer(handle,
+                                      in_endpoint,
+                                      buffer,
+                                      BUFFER_SIZE,
+                                      &transferred,
+                                      timeout);
+        if( 0 != status ){
+          if( (status == LIBUSB_ERROR_PIPE ||
+               status == LIBUSB_ERROR_TIMEOUT ||
+               status == LIBUSB_ERROR_IO) && (i_repeat < max_retries) ){
+            if( status == LIBUSB_ERROR_PIPE ){
+              //fprintf(stderr,"+* (%d)\n", i_repeat);
+              //libusb_clear_halt(handle, out_endpoint);
+              libusb_clear_halt(handle, in_endpoint);
+            }
+            //else
+            //  fprintf(stderr,"!* (%d)\n", i_repeat);
+            usleep(150000);
+            continue;  // Next retry attempt.
+          }
+          else{
+            strncpy(last_error_string, libusb_error_name(status), ERROR_SIZE);
+            fprintf(stderr, "query(): read response error (3): %s\n... %s\n", 
+                    last_error_string,
+                    libusb_strerror(ICAST status));
+            return status;
+          }
+        }
+
+        // Wait 20 ms. Brief pause after reading a response before sending the next command,
+        // so the Rigol's USB state machine finishes its DATA0/DATA1 toggle housekeeping.
+        //fprintf(stderr, "-\n");
+        status = usleep(20000);
+        if( 0 != status ){
+          fprintf(stderr, "query(): micro-sleep (2) failed!\n");
+          return status;
+        }
+
+        // If we get here, everything worked. Exit retry loop.
+        break;
+        
+      } // End of read retry loop.
 
       // Check for pathological failues, just in case.
       if( transferred < HDR_SIZE ){
@@ -528,7 +625,7 @@ int main( int ArgCount, char **Args )
 
   // Version display only.
   if( version_mode ){
-    fprintf(stderr, "TMCUSBIO version: 0.1 (28-AUG-2026)\n");
+    fprintf(stderr, "TMCUSBIO version: 0.2 (25-NOV-2026)\n");
     return 0;
   }
 

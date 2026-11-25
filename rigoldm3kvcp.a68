@@ -17,7 +17,7 @@ COMMENT
 PR heap=256M PR
 
 PR read "utility.a68" PR
- PR read "arg_parser.a68" PR
+PR read "arg_parser.a68" PR
 PR read "config_parser.a68" PR
 PR read "vcpgui.a68" PR
 PR read "rigol3kdmm.a68" PR
@@ -123,7 +123,7 @@ PROC function_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
          (REF RADIOBUTTON rb): (
             function := all_functions[which OF rb];
             units := all_units[which OF rb];
-            ieb(set_function_dm3k(device, all_funcnames[which OF rb]));
+            iwb(set_function_dm3k(device, all_funcnames[which OF rb]));
             update_auto(device)
          )
       OUT
@@ -141,8 +141,8 @@ PROC range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
       CASE state
       IN
          (REF RADIOBUTTON rb): (
-            (get_radiobutton_sel_label(rb) = "AUTO" | ieb(set_auto_range_dm3k(device)));
-            (get_radiobutton_sel_label(rb) = "MANUAL" | ieb(set_manual_range_dm3k(device)))
+            (get_radiobutton_sel_label(rb) = "AUTO" | iwb(set_auto_range_dm3k(device)));
+            (get_radiobutton_sel_label(rb) = "MANUAL" | iwb(set_manual_range_dm3k(device)))
          )
       OUT
          put(stand error, ("Expected a radio button. Got something else!", new line))
@@ -159,7 +159,7 @@ PROC inc_range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
       CASE state
       IN
          (REF PUSHBUTTON pb): (
-            ieb(inc_dec_range_dm3k(device, TRUE))
+            iwb(inc_dec_range_dm3k(device, TRUE))
          )
       OUT
          put(stand error, ("Expected a push button. Got something else!", new line))
@@ -176,7 +176,7 @@ PROC dec_range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
       CASE state
       IN
          (REF PUSHBUTTON pb): (
-            ieb(inc_dec_range_dm3k(device, FALSE))
+            iwb(inc_dec_range_dm3k(device, FALSE))
          )
       OUT
          put(stand error, ("Expected a push button. Got something else!", new line))
@@ -190,7 +190,7 @@ PROC dec_range_proc = (STRING tag, STRING event, ANYBUTTONREF state) BOOL:
 # MAIN PROGRAM #
 # ============ #
 
-print_std_title("Virtual control panel for a Rigol DM3000 series multi-meter. V0.1");
+print_std_title("Virtual control panel for a Rigol DM3000 series multi-meter. V0.2");
 
 # Parse command line arguments. These MUST appear after --. #
 REF ARG_PARSE arg_parser := make_arg_parser("Rigol DM3K Multimeter Virtual Control Panel");
@@ -258,7 +258,7 @@ sample_auto := TRUE;
 set_timer(dsurf_pipe, "timer", TRUE, FALSE);
 
 # Set initial device state. #
-ieb(set_function_dm3k(device, "DCV"));
+iwb(set_function_dm3k(device, "DCV"));
 
 # Create and run the GUI. #
 instantiate(dsurf_pipe);
